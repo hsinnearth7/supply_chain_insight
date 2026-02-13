@@ -341,7 +341,9 @@ df['Stock_Status'] = df.apply(
 
 **EOQ (Economic Order Quantity) — chart_09:**
 
-$$EOQ = \sqrt{\frac{2DS}{H}}$$
+```
+EOQ = √(2DS / H)
+```
 
 Where: D = Annual Demand, S = Ordering Cost ($50/order), H = Holding Cost (25% of Unit Cost)
 
