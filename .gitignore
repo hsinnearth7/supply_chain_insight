@@ -5,6 +5,11 @@ __pycache__/
 *.sqlite3
 data/
 charts/
+demo/
+*.png
+*.jpg
+*.jpeg
+*.gif
 *.env
 .env*
 !.env.example
