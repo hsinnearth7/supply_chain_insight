@@ -227,6 +227,13 @@ MLOps      Live Mode
 | `test_config.py` | 16 | YAML config loading |
 | Original test files | 28 | ETL, API, RL, pipeline |
 
+## Development Guidelines
+- Always JSON-serialize datetime objects and numpy types before sending through WebSocket. Use `SafeEncoder` (see root CLAUDE.md).
+- Test WebSocket connections immediately after implementation to catch routing/serialization issues.
+- After editing Python files, verify syntax with `python -m py_compile <file>`.
+- Run `pytest tests/ -v` after code changes, not as a final step.
+- For the React frontend: run `npm run build` to catch TypeScript errors early.
+
 ## Security
 
 - **Authentication**: API Key via `X-API-Key` header (all endpoints except `/api/health`)
