@@ -1,0 +1,22 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: chaininsight-backend
+  namespace: chaininsight
+spec:
+  hosts:
+    - chaininsight-backend
+  http:
+    - route:
+        - destination:
+            host: chaininsight-backend
+            subset: stable
+          weight: 100
+        - destination:
+            host: chaininsight-backend
+            subset: canary
+          weight: 0
+      retries:
+        attempts: 3
+        perTryTimeout: 10s
+        retryOn: "5xx,reset,connect-failure"

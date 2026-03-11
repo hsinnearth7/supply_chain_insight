@@ -1,0 +1,124 @@
+# ChainInsight Service Level Objectives (SLOs)
+#
+# These SLOs define the reliability and performance targets
+# for the ChainInsight platform in production.
+
+service: chaininsight
+version: "1.0"
+
+slos:
+  # --- Availability ---
+  - name: api-availability
+    description: "Overall API availability (non-5xx responses)"
+    target: 99.9  # Three nines
+    window: 30d
+    indicator:
+      type: availability
+      metric: |
+        1 - (
+          sum(rate(chaininsight_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          sum(rate(chaininsight_http_requests_total[5m]))
+        )
+    alert:
+      burn_rate_1h: 14.4   # 1h burn rate for page
+      burn_rate_6h: 6.0    # 6h burn rate for ticket
+
+  # --- Latency ---
+  - name: api-latency-p95
+    description: "95th percentile API response time under 500ms"
+    target: 99.0  # 99% of 5-min windows meet P95 < 500ms
+    window: 30d
+    indicator:
+      type: latency
+      metric: |
+        histogram_quantile(0.95,
+          sum(rate(chaininsight_http_request_duration_seconds_bucket[5m])) by (le)
+        )
+      threshold: 0.5  # 500ms
+    alert:
+      warning_threshold: 0.4   # Alert at 400ms
+      critical_threshold: 0.5  # Critical at 500ms
+
+  - name: api-latency-p99
+    description: "99th percentile API response time under 2s"
+    target: 99.0
+    window: 30d
+    indicator:
+      type: latency
+      metric: |
+        histogram_quantile(0.99,
+          sum(rate(chaininsight_http_request_duration_seconds_bucket[5m])) by (le)
+        )
+      threshold: 2.0  # 2 seconds
+
+  # --- Forecast Quality ---
+  - name: forecast-mape
+    description: "Forecast MAPE below 15% for all active products"
+    target: 95.0  # 95% of products meet MAPE < 15%
+    window: 7d
+    indicator:
+      type: quality
+      metric: |
+        count(chaininsight_forecast_mape < 15) / count(chaininsight_forecast_mape)
+      threshold: 0.15  # 15% MAPE
+    alert:
+      degradation_trigger: 3  # Alert after 3 consecutive breaches
+      auto_retrain: true
+
+  # --- RL Optimization ---
+  - name: rl-cost-efficiency
+    description: "RL optimization achieves at least 10% cost reduction vs baseline"
+    target: 90.0
+    window: 7d
+    indicator:
+      type: quality
+      metric: "chaininsight_rl_cost_per_day"
+      baseline_comparison: true
+
+  # --- Pipeline Reliability ---
+  - name: pipeline-success-rate
+    description: "Training pipeline success rate"
+    target: 95.0
+    window: 30d
+    indicator:
+      type: availability
+      metric: |
+        sum(rate(chaininsight_pipeline_duration_seconds_count{stage="complete"}[1h]))
+        /
+        sum(rate(chaininsight_pipeline_duration_seconds_count{stage="start"}[1h]))
+
+  # --- Drift Detection ---
+  - name: drift-detection-freshness
+    description: "Drift checks run within the last 6 hours"
+    target: 99.0
+    window: 30d
+    indicator:
+      type: freshness
+      metric: |
+        time() - max(chaininsight_drift_detected_total)
+      threshold: 21600  # 6 hours in seconds
+
+  # --- Error Budget ---
+  - name: error-budget
+    description: "Monthly error budget consumption"
+    budget:
+      monthly_allowed_downtime_minutes: 43.2  # 99.9% of 30 days
+      current_consumption_metric: |
+        sum(increase(chaininsight_errors_total[30d]))
+
+thresholds:
+  # Global thresholds referenced by SLOs
+  latency:
+    p50: 100ms
+    p95: 500ms
+    p99: 2000ms
+  availability:
+    target: 99.9%
+    page_threshold: 99.5%
+  forecast:
+    mape_target: 15%
+    mape_critical: 25%
+  error_rate:
+    target: 1%
+    critical: 5%

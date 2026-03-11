@@ -1,0 +1,16 @@
+apiVersion: v2
+name: chaininsight
+description: End-to-end supply chain analytics platform with ML forecasting and RL optimization
+type: application
+version: 1.0.0
+appVersion: "3.0.0"
+keywords:
+  - supply-chain
+  - forecasting
+  - reinforcement-learning
+  - mlops
+maintainers:
+  - name: ChainInsight Team
+home: https://github.com/chaininsight/chaininsight
+sources:
+  - https://github.com/chaininsight/chaininsight

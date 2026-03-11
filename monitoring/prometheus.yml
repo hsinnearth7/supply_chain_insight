@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: "chaininsight-backend"
+    metrics_path: /api/metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["backend:8000"]
+        labels:
+          service: chaininsight
+          component: backend
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -1,0 +1,126 @@
+{
+  "expectation_suite_name": "demand_data_suite",
+  "meta": {
+    "great_expectations_version": "0.18.0",
+    "description": "Data quality expectations for demand/sales data in ChainInsight"
+  },
+  "expectations": [
+    {
+      "expectation_type": "expect_table_columns_to_match_ordered_list",
+      "kwargs": {
+        "column_list": ["date", "product_id", "demand", "price", "category"]
+      },
+      "meta": {
+        "notes": "Required columns for demand data ingestion"
+      }
+    },
+    {
+      "expectation_type": "expect_table_row_count_to_be_between",
+      "kwargs": {
+        "min_value": 1,
+        "max_value": 10000000
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "date"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "product_id"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "demand"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_of_type",
+      "kwargs": {
+        "column": "demand",
+        "type_": "float64"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "demand",
+        "min_value": 0,
+        "max_value": 100000,
+        "mostly": 0.99
+      },
+      "meta": {
+        "notes": "Demand should be non-negative; allow 1% outliers"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_of_type",
+      "kwargs": {
+        "column": "price",
+        "type_": "float64"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "price",
+        "min_value": 0.01,
+        "max_value": 50000,
+        "mostly": 0.99
+      },
+      "meta": {
+        "notes": "Price must be positive"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_match_strftime_format",
+      "kwargs": {
+        "column": "date",
+        "strftime_format": "%Y-%m-%d"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_unique",
+      "kwargs": {
+        "column": "product_id"
+      },
+      "meta": {
+        "notes": "Within a single date, product_id should be unique. This checks global uniqueness of the compound key."
+      }
+    },
+    {
+      "expectation_type": "expect_column_distinct_values_to_be_in_set",
+      "kwargs": {
+        "column": "category",
+        "value_set": ["Electronics", "Clothing", "Food", "Home", "Sports", "Books", "Toys", "Health", "Automotive", "Garden"]
+      },
+      "meta": {
+        "notes": "Known product categories; update as catalog expands"
+      }
+    },
+    {
+      "expectation_type": "expect_column_mean_to_be_between",
+      "kwargs": {
+        "column": "demand",
+        "min_value": 1,
+        "max_value": 10000
+      },
+      "meta": {
+        "notes": "Sanity check: average demand should be reasonable"
+      }
+    },
+    {
+      "expectation_type": "expect_column_stdev_to_be_between",
+      "kwargs": {
+        "column": "demand",
+        "min_value": 0,
+        "max_value": 50000
+      }
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+# Daily validation checkpoint for ChainInsight data quality
+# Run via: python data_quality/validate.py
+
+name: daily_validation
+config_version: 1.0
+class_name: Checkpoint
+module_name: great_expectations.checkpoint
+
+run_name_template: "daily_validation_%Y%m%d_%H%M%S"
+
+validations:
+  - batch_request:
+      datasource_name: chaininsight_data
+      data_connector_name: default_inferred_data_connector
+      data_asset_name: demand_data
+    expectation_suite_name: demand_data_suite
+    action_list:
+      - name: store_validation_result
+        action:
+          class_name: StoreValidationResultAction
+      - name: update_data_docs
+        action:
+          class_name: UpdateDataDocsAction
+
+  - batch_request:
+      datasource_name: chaininsight_data
+      data_connector_name: default_inferred_data_connector
+      data_asset_name: inventory_data
+    expectation_suite_name: inventory_data_suite
+    action_list:
+      - name: store_validation_result
+        action:
+          class_name: StoreValidationResultAction
+      - name: update_data_docs
+        action:
+          class_name: UpdateDataDocsAction
+
+evaluation_parameters: {}
+runtime_configuration: {}

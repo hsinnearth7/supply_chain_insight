@@ -446,3 +446,134 @@ MIT License — see [LICENSE](LICENSE).
 *Built with statistical rigor. Designed for production reliability.*
 
 </div>
+
+---
+
+## Enterprise Deployment Infrastructure
+
+ChainInsight includes production-grade deployment infrastructure spanning three maturity phases.
+
+### Project Structure (Infrastructure)
+
+```
+├── k8s/                        # Kubernetes manifests
+│   ├── namespace.yaml
+│   ├── configmap.yaml
+│   ├── secret.yaml
+│   ├── backend-deployment.yaml  # 2 replicas, 1Gi/1CPU, health probes
+│   ├── frontend-deployment.yaml # 2 replicas, nginx
+│   ├── backend-service.yaml
+│   ├── frontend-service.yaml
+│   ├── hpa.yaml                 # HPA 2-10 pods, CPU 70%
+│   ├── ingress.yaml             # /api → backend, / → frontend
+│   ├── postgres.yaml            # PostgreSQL 16, 2Gi PVC
+│   ├── redis.yaml               # Redis 7
+│   └── canary/                  # Istio + Flagger
+├── helm/chaininsight/           # Helm chart
+│   ├── Chart.yaml
+│   ├── values.yaml              # backend/frontend/postgresql/redis
+│   └── templates/               # 9 templated manifests
+├── serving/                     # BentoML model serving
+│   ├── bentofile.yaml
+│   └── service.py               # forecast / rl_optimize / detect_drift
+├── monitoring/                  # Observability stack
+│   ├── prometheus.yml
+│   ├── docker-compose.monitoring.yaml
+│   └── grafana/                 # 7-panel dashboard
+├── pipelines/                   # Airflow orchestration
+│   ├── dags/
+│   │   ├── chaininsight_training.py     # Daily ML training pipeline
+│   │   └── chaininsight_monitoring.py   # 6-hourly drift detection
+│   └── docker-compose.airflow.yaml
+├── mlflow/                      # Model registry
+│   └── docker-compose.mlflow.yaml
+├── terraform/                   # AWS infrastructure as code
+│   ├── main.tf                  # VPC + EKS + RDS + ElastiCache + S3
+│   ├── variables.tf
+│   ├── outputs.tf
+│   ├── modules/                 # eks / rds / redis / s3
+│   └── environments/            # dev / prod configs
+├── loadtests/                   # Performance testing
+│   ├── k6_api.js                # 5 scenarios, P95 < 500ms
+│   └── slo.yaml                 # 8 SLO definitions
+└── data_quality/                # Great Expectations
+    ├── great_expectations.yml
+    ├── expectations/             # demand_data + inventory_data
+    ├── checkpoints/
+    └── validate.py              # CLI: --suite, --file, --output
+```
+
+### Phase 1 — Minimum Viable Deployment
+
+| Component | Technology | Details |
+|-----------|-----------|---------|
+| **Container Orchestration** | Kubernetes | Backend (2 replicas) + Frontend (2 replicas), liveness/readiness probes, HPA |
+| **Helm Chart** | Helm v3 | Parameterized: backend, frontend, postgresql, redis, ingress |
+| **Model Serving** | BentoML | 3 endpoints: `forecast` (6-model routing), `rl_optimize` (PPO), `detect_drift` |
+| **Database** | PostgreSQL 16 | StatefulSet with 2Gi persistent volume |
+| **Cache** | Redis 7 | Feature store online serving + session cache |
+| **Secrets** | K8s Secrets | API keys, database URLs, Redis URLs |
+
+### Phase 2 — Production Ready
+
+| Component | Technology | Details |
+|-----------|-----------|---------|
+| **Model Registry** | MLflow | log_model_run, register_model, transition_stage, get_production_model |
+| **Metrics** | Prometheus | 8 custom metrics (`chaininsight_*`) + MetricsTimer context manager |
+| **Dashboards** | Grafana | 7 panels: request rate, latency, forecast MAPE, RL cost, drift alerts, pipeline, errors |
+| **Canary Deployment** | Istio + Flagger | 10% step, 50% max weight, success rate + latency thresholds |
+| **Pipeline Orchestration** | Apache Airflow | Training DAG (daily, 7 tasks) + Monitoring DAG (6-hourly, auto-retrain branching) |
+
+### Phase 3 — Enterprise Grade
+
+| Component | Technology | Details |
+|-----------|-----------|---------|
+| **Infrastructure as Code** | Terraform | AWS: VPC, EKS, RDS (multi-AZ prod), ElastiCache, S3 |
+| **Access Control** | RBAC Middleware | 3 roles (Viewer/Operator/Admin), 9 permissions |
+| **Audit Trail** | Audit Logger | Ring buffer (10K events), query/filter/stats, structured logging |
+| **Load Testing** | k6 | Ramp-up/spike/ramp-down, 5 scenarios, P95 < 500ms |
+| **SLO** | YAML definitions | 8 SLOs: availability 99.9%, latency, MAPE < 15%, pipeline success, drift freshness |
+| **Data Quality** | Great Expectations | demand_data (14 rules) + inventory_data (13 rules), daily checkpoint |
+
+### Quick Start — Local Infrastructure
+
+```bash
+# Core services (backend + frontend + PostgreSQL + Redis)
+docker compose up -d
+
+# Monitoring (Prometheus + Grafana)
+docker compose -f monitoring/docker-compose.monitoring.yaml up -d
+# → Grafana: http://localhost:3000 (admin/admin)
+
+# MLflow Model Registry
+docker compose -f mlflow/docker-compose.mlflow.yaml up -d
+# → MLflow: http://localhost:5000
+
+# Airflow Pipeline Orchestration
+docker compose -f pipelines/docker-compose.airflow.yaml up -d
+# → Airflow: http://localhost:8080 (admin/admin)
+
+# Kubernetes (local)
+minikube start
+kubectl apply -f k8s/
+# Or with Helm:
+helm install chaininsight helm/chaininsight/
+
+# Load Testing
+k6 run loadtests/k6_api.js
+
+# Data Quality Validation
+python data_quality/validate.py --suite demand_data
+```
+
+### Cloud Deployment (AWS)
+
+```bash
+# Dev environment
+cd terraform/environments/dev
+terraform init && terraform plan && terraform apply
+
+# Prod environment (multi-AZ, larger instances)
+cd terraform/environments/prod
+terraform init && terraform plan && terraform apply
+```

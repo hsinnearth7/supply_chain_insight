@@ -1,0 +1,116 @@
+{
+  "expectation_suite_name": "inventory_data_suite",
+  "meta": {
+    "great_expectations_version": "0.18.0",
+    "description": "Data quality expectations for inventory data in ChainInsight"
+  },
+  "expectations": [
+    {
+      "expectation_type": "expect_table_columns_to_match_set",
+      "kwargs": {
+        "column_set": ["date", "product_id", "inventory_level", "warehouse", "reorder_point", "lead_time_days", "unit_cost"],
+        "exact_match": false
+      },
+      "meta": {
+        "notes": "Core inventory columns; additional columns allowed"
+      }
+    },
+    {
+      "expectation_type": "expect_table_row_count_to_be_between",
+      "kwargs": {
+        "min_value": 1,
+        "max_value": 5000000
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "product_id"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "inventory_level"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "warehouse"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_of_type",
+      "kwargs": {
+        "column": "inventory_level",
+        "type_": "int64"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "inventory_level",
+        "min_value": 0,
+        "max_value": 1000000
+      },
+      "meta": {
+        "notes": "Inventory cannot be negative"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "lead_time_days",
+        "min_value": 0,
+        "max_value": 365,
+        "mostly": 0.99
+      },
+      "meta": {
+        "notes": "Lead time should be reasonable (0 to 1 year)"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "unit_cost",
+        "min_value": 0.01,
+        "max_value": 100000,
+        "mostly": 0.99
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "reorder_point",
+        "min_value": 0,
+        "max_value": 500000
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_match_strftime_format",
+      "kwargs": {
+        "column": "date",
+        "strftime_format": "%Y-%m-%d"
+      }
+    },
+    {
+      "expectation_type": "expect_column_distinct_values_to_contain_set",
+      "kwargs": {
+        "column": "warehouse",
+        "value_set": ["WH-EAST", "WH-WEST", "WH-CENTRAL"]
+      },
+      "meta": {
+        "notes": "At minimum, the 3 primary warehouses should be present"
+      }
+    },
+    {
+      "expectation_type": "expect_column_proportion_of_unique_values_to_be_between",
+      "kwargs": {
+        "column": "product_id",
+        "min_value": 0.001,
+        "max_value": 1.0
+      }
+    }
+  ]
+}

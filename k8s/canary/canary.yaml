@@ -1,0 +1,44 @@
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: chaininsight-backend
+  namespace: chaininsight
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chaininsight-backend
+  service:
+    port: 80
+    targetPort: 8000
+    gateways:
+      - mesh
+    hosts:
+      - chaininsight-backend
+  analysis:
+    # Schedule interval
+    interval: 1m
+    # Max number of failed metric checks before rollback
+    threshold: 5
+    # Max traffic percentage routed to canary (0-100)
+    maxWeight: 50
+    # Canary increment step (percentage)
+    stepWeight: 10
+    # Promotion check thresholds
+    metrics:
+      - name: request-success-rate
+        thresholdRange:
+          min: 99
+        interval: 1m
+      - name: request-duration
+        thresholdRange:
+          max: 500
+        interval: 1m
+    webhooks:
+      - name: load-test
+        type: rollout
+        url: http://flagger-loadtester.chaininsight/
+        timeout: 15s
+        metadata:
+          type: cmd
+          cmd: "hey -z 1m -q 10 -c 2 http://chaininsight-backend-canary.chaininsight/api/health"
