@@ -3,7 +3,7 @@ name = "chaininsight"
 version = "2.0.0"
 description = "End-to-end supply chain demand planning: hierarchical forecasting + capacity planning + S&OP"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 dependencies = [
     # Core data
     "pandas>=2.2.0,<3.0",
