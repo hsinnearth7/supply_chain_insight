@@ -42,7 +42,7 @@ uvicorn app.main:app --reload --port 8000
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v                    # 155+ tests across 14 files
+pytest tests/ -v                    # 200+ tests across 14 files
 pytest tests/ -v -m "not slow"      # Skip slow integration tests
 ruff check app/ tests/
 mypy app/
@@ -203,12 +203,12 @@ The orchestrator runs 7 stages in sequence:
 
 ## Testing
 
-155+ tests across 14 files:
+200+ tests across 14 files:
 
 | File | Tests | Coverage |
 |------|-------|----------|
 | `test_data_generator.py` | 27 | Data generation, schemas, M5 properties |
-| `test_forecasting_models.py` | 14 | All 6 models, factory pattern |
+| `test_forecasting_models.py` | 53 | All 6 models, factory pattern, routing |
 | `test_evaluation.py` | 21 | Metrics, CV, statistical tests |
 | `test_hierarchy.py` | 5 | Aggregation, reconciliation |
 | `test_feature_store.py` | 11 | Offline/online modes |
@@ -217,8 +217,10 @@ The orchestrator runs 7 stages in sequence:
 | `test_capacity.py` | 8 | Capacity planning, bottleneck detection |
 | `test_sensing.py` | 8 | Demand sensing, spike detection |
 | `test_sop.py` | 9 | S&OP simulation, scenario comparison |
-| `test_config.py` | 16 | YAML config loading |
-| Original test files | 21 | ETL, API, pipeline |
+| `test_config.py` | 24 | YAML config + section loading |
+| `test_api_security.py` | 19 | Auth, path traversal, upload, rate limit |
+| `test_etl.py` | 6 | ETL pipeline |
+| `test_ml_leakage.py` | 4 | Anti-leakage guards |
 
 ## Development Guidelines
 - Always JSON-serialize datetime objects and numpy types before sending through WebSocket. Use `SafeEncoder` (see root CLAUDE.md).

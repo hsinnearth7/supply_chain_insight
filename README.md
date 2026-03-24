@@ -7,7 +7,7 @@
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](.github/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests: 155+](https://img.shields.io/badge/tests-155+-blue.svg)](tests/)
+[![Tests: 200+](https://img.shields.io/badge/tests-200+-blue.svg)](tests/)
 [![Coverage: 85%+](https://img.shields.io/badge/coverage-85%25+-yellow.svg)](tests/)
 [![Docker](https://img.shields.io/badge/docker-compose-2496ED.svg)](docker-compose.yml)
 
@@ -224,21 +224,21 @@ ChainInsight/
 │   └── seed.py                         # Global seed management
 ├── configs/
 │   └── chaininsight.yaml               # All hyperparameters (no hard-coded values)
-├── tests/                              # 155+ tests (14 files)
+├── tests/                              # 200+ tests (14 files)
+│   ├── test_forecasting_models.py      # Unified interface, factory, routing (53)
 │   ├── test_data_generator.py          # Schema, M5 properties, hierarchy (27)
-│   ├── test_forecasting_models.py      # Unified interface, factory, routing (14)
+│   ├── test_config.py                  # YAML + section loading (24)
 │   ├── test_evaluation.py              # Metrics, Wilcoxon, Cohen's d, conformal (21)
-│   ├── test_hierarchy.py               # Aggregation, reconciliation (5)
+│   ├── test_api_security.py            # Auth, path traversal, upload, rate limit (19)
 │   ├── test_feature_store.py           # Offline/online stores (11)
-│   ├── test_drift_monitor.py           # KS, PSI, concept drift (8)
-│   ├── test_property_based.py          # Hypothesis invariant tests (7)
+│   ├── test_sop.py                     # S&OP simulation, scenario comparison (9)
 │   ├── test_capacity.py                # Capacity planning, bottleneck detection (8)
 │   ├── test_sensing.py                 # Demand sensing, spike detection (8)
-│   ├── test_sop.py                     # S&OP simulation, scenario comparison (9)
-│   ├── test_config.py                  # YAML loading (16)
+│   ├── test_drift_monitor.py           # KS, PSI, concept drift (8)
+│   ├── test_property_based.py          # Hypothesis invariant tests (7)
 │   ├── test_etl.py                     # ETL pipeline (6)
-│   ├── test_ml_leakage.py              # Anti-leakage guards (4)
-│   └── test_api_security.py            # Auth, path traversal, rate limit (11)
+│   ├── test_hierarchy.py               # Aggregation, reconciliation (5)
+│   └── test_ml_leakage.py              # Anti-leakage guards (4)
 ├── docs/
 │   ├── model_card.md                   # Mitchell et al., FAT* 2019
 │   ├── reproducibility.md              # NeurIPS 2019 Reproducibility Checklist
@@ -359,14 +359,14 @@ python -m app.forecasting.data_generator --validate-only
 
 ## Testing
 
-**155+ tests** across 14 test files, covering Google ML Test Score 4 categories:
+**200+ tests** across 14 test files, covering Google ML Test Score 4 categories:
 
 | Category | Tests | Examples |
 |----------|-------|---------|
 | Data tests | 38 | Schema validation, M5 properties, hierarchy, reproducibility |
-| Model tests | 35 | Unified interface, routing logic, feature importance |
-| Infrastructure tests | 53 | API security, config loading, Feature Store, drift monitor |
-| Planning tests | 25 | Capacity planning, demand sensing, S&OP simulation |
+| Model tests | 74 | Unified interface, factory pattern, routing logic, all 6 models |
+| Infrastructure tests | 68 | API security (auth, upload, path traversal, rate limit), config, Feature Store, drift monitor |
+| Planning tests | 30 | Capacity planning, demand sensing, S&OP simulation, ETL pipeline |
 
 **Property-based testing** (Hypothesis): metric invariants, forecast non-negativity, conformal interval containment.
 
@@ -426,7 +426,7 @@ MIT License — see [LICENSE](LICENSE).
 
 <div align="center">
 
-**MAPE 10.3% · S&OP Simulation · AP > CP · Graceful Degradation**
+**MAPE 10.3% · S&OP Simulation · AP > CP · Graceful Degradation · 200+ Tests**
 
 *Built with statistical rigor. Designed for production reliability.*
 
