@@ -17,7 +17,6 @@ from app.config import RAW_DIR
 from app.db.models import PipelineRun, SessionLocal
 
 
-
 class TestAuthentication:
     """Verify API key authentication is enforced."""
 
