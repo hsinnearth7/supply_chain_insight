@@ -1,5 +1,6 @@
 """SQLAlchemy models for ChainInsight."""
 
+import threading
 from datetime import datetime, timezone
 
 from sqlalchemy import (
@@ -14,8 +15,6 @@ from sqlalchemy import (
     create_engine,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
-
-from app.config import DATABASE_URL
 
 Base = declarative_base()
 
@@ -73,17 +72,51 @@ class AnalysisResult(Base):
     pipeline_run = relationship("PipelineRun", back_populates="analysis_results")
 
 
-# ---- Engine & Session factory ----
+# ---- Engine & Session factory (lazy) ----
 
-engine = create_engine(DATABASE_URL, echo=False)
+_engine = None
+
+
+def get_engine():
+    """Return the shared SQLAlchemy engine, creating it lazily on first call."""
+    global _engine
+    if _engine is None:
+        from app.config import DATABASE_URL
+        connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+        _engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args)
+    return _engine
+
+
+def get_session_local():
+    """Return a new sessionmaker bound to the current engine."""
+    return sessionmaker(bind=get_engine())
 
 
 def init_db():
     """Create all tables."""
-    Base.metadata.create_all(engine)
+    Base.metadata.create_all(get_engine())
 
 
-SessionLocal = sessionmaker(bind=engine)
+# Module-level convenience alias (lazy — evaluates engine on first use of the factory).
+class _LazySessionLocal:
+    """Proxy so that ``SessionLocal()`` works without eagerly creating the engine."""
+
+    _factory = None
+    _lock = threading.Lock()
+
+    def __call__(self, **kw):
+        with self._lock:
+            if self._factory is None:
+                self._factory = get_session_local()
+        return self._factory(**kw)
+
+    def configure(self, **kw):
+        if self._factory is None:
+            self._factory = get_session_local()
+        self._factory.configure(**kw)
+
+
+SessionLocal = _LazySessionLocal()
 
 
 def get_db():

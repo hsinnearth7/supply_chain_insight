@@ -24,7 +24,7 @@ if not API_KEY:
     raise RuntimeError("API_KEY environment variable must be set")
 
 # CORS
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",") if o.strip()]
 
 # Upload limits
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))

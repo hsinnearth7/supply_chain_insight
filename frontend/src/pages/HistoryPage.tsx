@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   LineChart,
   Line,
@@ -27,14 +27,13 @@ export default function HistoryPage() {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [kpiHistory, setKpiHistory] = useState<KPIData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const setLatestBatchId = useAppStore((s) => s.setLatestBatchId);
+  const latestBatchId = useAppStore((s) => s.latestBatchId);
   const { t } = useTranslation();
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  async function loadData() {
+  const loadData = useCallback(async function loadData() {
+    setError(null);
     try {
       const [runsData, historyData] = await Promise.all([
         api.listRuns(),
@@ -49,13 +48,25 @@ export default function HistoryPage() {
         setLatestBatchId(latestCompletedRun.batch_id);
       }
     } catch {
-      // no data
+      setError('Failed to load data');
     } finally {
       setLoading(false);
     }
-  }
+  }, [setLatestBatchId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   if (loading) return <LoadingSpinner text={t('history.loading')} />;
+  if (error) return (
+    <div className="text-red-500 p-4 text-center">
+      <p>{error}</p>
+      <button onClick={loadData} className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+        Retry
+      </button>
+    </div>
+  );
 
   const trendData = kpiHistory
     .slice()

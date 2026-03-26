@@ -8,9 +8,17 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-# Set test API key before importing app
+# Set test API key before importing app.
+# These env vars must be set at module level (before app.main / app.db.models
+# are imported) because SQLAlchemy engine creation and FastAPI app construction
+# happen at import time. A session-scoped fixture would be too late.
 os.environ["API_KEY"] = "test-api-key"
-os.environ["DATABASE_URL"] = "sqlite:///test_chaininsight.db"
+
+# Use a temporary file DB so tests never pollute the working directory.
+_test_db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+_test_db = _test_db_file.name
+_test_db_file.close()
+os.environ["DATABASE_URL"] = f"sqlite:///{_test_db}"
 
 from app.db.models import Base, engine
 from app.main import app
@@ -18,10 +26,15 @@ from app.main import app
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
-    """Create test database tables."""
+    """Create test database tables (uses temp file DB, see module-level comment)."""
     Base.metadata.create_all(engine)
     yield
     Base.metadata.drop_all(engine)
+    # Clean up temp DB file
+    try:
+        os.unlink(_test_db)
+    except OSError:
+        pass
 
 
 @pytest.fixture
@@ -59,9 +72,14 @@ def sample_csv_content():
 @pytest.fixture
 def sample_csv_file(sample_csv_content):
     """Write sample CSV to a temp file and return path."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-        f.write(sample_csv_content)
-        return f.name
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="")
+    f.write(sample_csv_content)
+    f.close()
+    yield f.name
+    try:
+        os.unlink(f.name)
+    except OSError:
+        pass
 
 
 @pytest.fixture

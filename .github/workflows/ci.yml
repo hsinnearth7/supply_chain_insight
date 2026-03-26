@@ -10,8 +10,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
       - run: pip install ruff mypy
       - run: ruff check app/ tests/
+      - run: mypy app/ --ignore-missing-imports
 
   test:
     runs-on: ubuntu-latest
@@ -20,8 +22,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
       - run: pip install -e ".[dev]"
-      - run: pytest tests/ -v --tb=short
+      - run: pytest tests/ -v --tb=short --cov=app --cov-report=term-missing
         env:
           API_KEY: test-api-key
           DATABASE_URL: sqlite:///test_chaininsight.db
@@ -35,10 +38,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
       - run: pip install -e ".[dev]"
       - run: python -m app.forecasting.data_generator --validate-only
         env:
           PYTHONHASHSEED: "42"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
 
   docker:
     runs-on: ubuntu-latest
@@ -46,5 +66,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cp .env.example .env
-      - run: docker compose build backend
+      - run: docker compose build
       - run: docker compose config --quiet

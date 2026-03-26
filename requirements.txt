@@ -3,9 +3,22 @@ pandas>=2.2.0,<3.0
 numpy>=1.26.0,<3.0
 scipy>=1.12.0,<2.0
 scikit-learn>=1.4.0,<2.0
+pandera>=0.18.0,<1.0
+
+# Visualization
 matplotlib>=3.8.0,<4.0
 seaborn>=0.13.0,<1.0
 squarify>=0.4.3,<1.0
+
+# Time-series forecasting
+statsforecast>=1.7.0
+hierarchicalforecast>=0.4.0
+datasetsforecast>=0.0.8
+lightgbm>=4.0.0,<5.0
+xgboost>=2.0.0,<3.0
+
+# MLOps
+evidently>=0.4.0
 
 # Web backend
 fastapi>=0.109.0,<1.0
@@ -16,8 +29,10 @@ websockets>=12.0,<14.0
 # Database
 sqlalchemy>=2.0.27,<3.0
 
+# Config & logging
+structlog>=23.0.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
 # File monitoring
 watchdog>=4.0.0,<6.0
-
-# Optional
-xgboost>=2.0.0,<3.0

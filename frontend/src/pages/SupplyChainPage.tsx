@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo } from 'react';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts';
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { api } from '../api/client';
 import { useAppStore } from '../stores/appStore';
 import ChartImage from '../components/ChartImage';
@@ -21,6 +21,7 @@ export default function SupplyChainPage() {
   const [batchId, setBatchId] = useState<string | null>(null);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const latestBatchId = useAppStore((s) => s.latestBatchId);
   const { t } = useTranslation();
 
@@ -37,12 +38,9 @@ export default function SupplyChainPage() {
   const [mcStock, setMcStock] = useState(400);
   const [mcResult, setMcResult] = useState<{ bins: { range: string; count: number }[]; stockoutPct: number } | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, [latestBatchId]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       let bid = latestBatchId;
       if (!bid) {
@@ -59,11 +57,15 @@ export default function SupplyChainPage() {
         setMcDemandStd(Math.round(Math.sqrt(variance)));
       }
     } catch {
-      // no data
+      setError('Failed to load data');
     } finally {
       setLoading(false);
     }
-  }
+  }, [latestBatchId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // EOQ calculation
   const eoq = useMemo(() => {
@@ -105,6 +107,14 @@ export default function SupplyChainPage() {
   }
 
   if (loading) return <LoadingSpinner text={t('sc.loading')} />;
+  if (error) return (
+    <div className="text-red-500 p-4 text-center">
+      <p>{error}</p>
+      <button onClick={loadData} className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+        Retry
+      </button>
+    </div>
+  );
   if (!batchId) return <div className="text-ci-gray text-center py-12">{t('sc.noData')}</div>;
 
   return (

@@ -4,7 +4,7 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://chaininsight:${POSTGRES_PASSWORD:-changeme}@postgres:5432/airflow
-      AIRFLOW__CORE__FERNET_KEY: ""
+      AIRFLOW__CORE__FERNET_KEY: ""  # REQUIRED: Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       _AIRFLOW_DB_MIGRATE: "true"
@@ -37,8 +37,9 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://chaininsight:${POSTGRES_PASSWORD:-changeme}@postgres:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: ""  # REQUIRED: Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
     volumes:
       - ./dags:/opt/airflow/dags
       - airflow_logs:/opt/airflow/logs
@@ -60,6 +61,7 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://chaininsight:${POSTGRES_PASSWORD:-changeme}@postgres:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: ""  # REQUIRED: Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     volumes:
       - ./dags:/opt/airflow/dags

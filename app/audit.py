@@ -115,9 +115,9 @@ class AuditLogger:
                 continue
             if resource_prefix and not event.resource.startswith(resource_prefix):
                 continue
-            if min_status and event.status_code < min_status:
+            if min_status is not None and event.status_code < min_status:
                 continue
-            if max_status and event.status_code > max_status:
+            if max_status is not None and event.status_code > max_status:
                 continue
             results.append(event.to_dict())
 
@@ -202,15 +202,14 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
         start_time = time.perf_counter()
 
-        # Extract user info (set by RBACMiddleware)
-        user = getattr(request.state, "user", None)
-        user_id = user.id if user else "anonymous"
-        username = user.username if user else "anonymous"
-        role = user.role.value if user else "none"
-
-        # Read request body for non-sensitive paths
+        # Read request body for non-sensitive, non-multipart paths
         request_body = None
-        if request.method in ("POST", "PUT", "PATCH") and path not in SENSITIVE_PATHS:
+        content_type = request.headers.get("content-type", "")
+        if (
+            request.method in ("POST", "PUT", "PATCH")
+            and path not in SENSITIVE_PATHS
+            and "multipart" not in content_type
+        ):
             try:
                 body_bytes = await request.body()
                 if len(body_bytes) < 4096:  # Only log small bodies
@@ -218,10 +217,16 @@ class AuditMiddleware(BaseHTTPMiddleware):
             except Exception:  # noqa: S110
                 pass  # Best-effort body capture; non-critical for audit
 
-        # Process request
+        # Process request — RBAC middleware runs here and sets request.state.user
         response = await call_next(request)
 
         duration_ms = (time.perf_counter() - start_time) * 1000
+
+        # Extract user info (set by RBACMiddleware during call_next)
+        user = getattr(request.state, "user", None)
+        user_id = user.id if user else "anonymous"
+        username = user.username if user else "anonymous"
+        role = user.role.value if user else "none"
 
         # Build audit event
         event = AuditEvent(

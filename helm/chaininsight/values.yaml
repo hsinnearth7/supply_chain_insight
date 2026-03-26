@@ -36,7 +36,7 @@ backend:
   env:
     LOG_LEVEL: "INFO"
     PYTHONHASHSEED: "42"
-    CORS_ORIGINS: "http://localhost:5173,http://localhost:3000"
+    CORS_ORIGINS: ""  # MUST be overridden — set to your production domain(s)
     MAX_UPLOAD_MB: "10"
     RATE_LIMIT_PER_MINUTE: "30"
 
@@ -66,7 +66,7 @@ postgresql:
   auth:
     database: chaininsight
     username: chaininsight
-    password: ""  # Set via --set postgresql.auth.password=YOUR_PASSWORD
+    password: ""  # MUST be overridden — set via --set postgresql.auth.password=YOUR_PASSWORD
   persistence:
     size: 2Gi
   resources:
@@ -106,7 +106,6 @@ ingress:
           service: frontend
 
 secrets:
-  # Set via --set secrets.apiKey=YOUR_KEY or values override file
-  apiKey: ""
-  databaseUrl: ""
-  redisUrl: ""
+  apiKey: ""       # REQUIRED: Set via --set secrets.apiKey=<value>
+  databaseUrl: ""  # REQUIRED: Set via --set secrets.databaseUrl=<value>
+  redisUrl: ""     # REQUIRED: Set via --set secrets.redisUrl=<value>

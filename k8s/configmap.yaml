@@ -8,6 +8,8 @@ metadata:
 data:
   LOG_LEVEL: "INFO"
   PYTHONHASHSEED: "42"
+  # TODO: Replace with actual domain for production deployment
+  # Port 5173 = Vite dev server; port 3000 = Docker Compose frontend (nginx)
   CORS_ORIGINS: "http://localhost:5173,http://localhost:3000"
   MAX_UPLOAD_MB: "10"
   RATE_LIMIT_PER_MINUTE: "30"

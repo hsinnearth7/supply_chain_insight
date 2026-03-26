@@ -35,7 +35,16 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  darkMode: false,
+  darkMode: (() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ci-dark-mode');
+      if (saved === 'true') {
+        document.documentElement.classList.add('dark');
+        return true;
+      }
+    }
+    return false;
+  })(),
   toggleDarkMode: () =>
     set((state) => {
       const next = !state.darkMode;
@@ -45,6 +54,9 @@ export const useAppStore = create<AppState>((set) => ({
         } else {
           document.documentElement.classList.remove('dark');
         }
+      }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('ci-dark-mode', String(next));
       }
       return { darkMode: next };
     }),

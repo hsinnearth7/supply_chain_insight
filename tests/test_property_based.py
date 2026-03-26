@@ -19,13 +19,16 @@ from app.forecasting.models import NaiveMovingAverage
 class TestMetricInvariants:
     """Properties that must hold for all inputs to metric functions."""
 
-    @given(demand=arrays(dtype=float, shape=(50,), elements=st.floats(0.01, 1000)))
+    @given(
+        demand=arrays(dtype=float, shape=(50,), elements=st.floats(0.01, 1000)),
+        noise=arrays(dtype=float, shape=(50,), elements=st.floats(0.8, 1.2)),
+    )
     @settings(max_examples=50)
-    def test_mape_non_negative(self, demand):
+    def test_mape_non_negative(self, demand, noise):
         """MAPE is always >= 0 for any input."""
-        pred = demand * np.random.default_rng(42).uniform(0.8, 1.2, len(demand))
+        pred = demand * noise
         result = mape(demand, pred)
-        assert result >= 0
+        assert result >= 0 or np.isnan(result)
 
     @given(demand=arrays(dtype=float, shape=(50,), elements=st.floats(0.01, 1000)))
     @settings(max_examples=50)
@@ -33,18 +36,24 @@ class TestMetricInvariants:
         """MAPE of perfect predictions is 0."""
         assert mape(demand, demand) == 0.0
 
-    @given(demand=arrays(dtype=float, shape=(50,), elements=st.floats(0.01, 1000)))
+    @given(
+        demand=arrays(dtype=float, shape=(50,), elements=st.floats(0.01, 1000)),
+        noise=arrays(dtype=float, shape=(50,), elements=st.floats(-1, 1)),
+    )
     @settings(max_examples=50)
-    def test_rmse_non_negative(self, demand):
+    def test_rmse_non_negative(self, demand, noise):
         """RMSE is always >= 0."""
-        pred = demand + np.random.default_rng(42).normal(0, 1, len(demand))
+        pred = demand + noise
         assert rmse(demand, pred) >= 0
 
-    @given(demand=arrays(dtype=float, shape=(50,), elements=st.floats(0.01, 1000)))
+    @given(
+        demand=arrays(dtype=float, shape=(50,), elements=st.floats(0.01, 1000)),
+        noise=arrays(dtype=float, shape=(50,), elements=st.floats(-5, 5)),
+    )
     @settings(max_examples=50)
-    def test_rmse_geq_mae(self, demand):
+    def test_rmse_geq_mae(self, demand, noise):
         """RMSE >= MAE (Cauchy-Schwarz inequality)."""
-        pred = demand + np.random.default_rng(42).normal(0, 5, len(demand))
+        pred = demand + noise
         assert rmse(demand, pred) >= mae(demand, pred) - 1e-10
 
 

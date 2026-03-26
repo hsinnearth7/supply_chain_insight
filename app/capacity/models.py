@@ -117,7 +117,7 @@ class CapacityPlanner:
             df["period"] = [f"W{i//7 + 1}" for i in range(len(df))]
 
         period_demand = df.groupby("period")["demand"].sum()
-        days_per_period = max(1, len(df) // max(1, len(period_demand)))
+        days_per_period = 7  # Weekly periods from orchestrator
         period_capacity = total_daily_capacity * days_per_period
 
         bottlenecks = []

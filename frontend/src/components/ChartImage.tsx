@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { auth } from '../api/client';
 import LoadingSpinner from './LoadingSpinner';
 
@@ -12,10 +12,16 @@ export default function ChartImage({ src, alt, className = '' }: ChartImageProps
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const prevUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    let nextObjectUrl: string | null = null;
+
+    // Revoke previous URL
+    if (prevUrlRef.current) {
+      URL.revokeObjectURL(prevUrlRef.current);
+      prevUrlRef.current = null;
+    }
 
     async function loadImage() {
       setLoading(true);
@@ -28,12 +34,13 @@ export default function ChartImage({ src, alt, className = '' }: ChartImageProps
           throw new Error(`Chart request failed: ${res.status}`);
         }
         const blob = await res.blob();
-        nextObjectUrl = URL.createObjectURL(blob);
+        const nextObjectUrl = URL.createObjectURL(blob);
         if (!active) {
           URL.revokeObjectURL(nextObjectUrl);
           return;
         }
         setObjectUrl(nextObjectUrl);
+        prevUrlRef.current = nextObjectUrl;
       } catch {
         if (active) {
           setError(true);
@@ -46,8 +53,9 @@ export default function ChartImage({ src, alt, className = '' }: ChartImageProps
 
     return () => {
       active = false;
-      if (nextObjectUrl) {
-        URL.revokeObjectURL(nextObjectUrl);
+      if (prevUrlRef.current) {
+        URL.revokeObjectURL(prevUrlRef.current);
+        prevUrlRef.current = null;
       }
     };
   }, [src]);
@@ -63,15 +71,19 @@ export default function ChartImage({ src, alt, className = '' }: ChartImageProps
         <div className="flex items-center justify-center h-48 text-ci-gray text-sm">
           Chart not available
         </div>
-      ) : (
+      ) : objectUrl ? (
         <img
-          src={objectUrl ?? ''}
+          src={objectUrl}
           alt={alt}
           className={`w-full h-auto transition-opacity ${loading ? 'opacity-0' : 'opacity-100'}`}
           onLoad={() => setLoading(false)}
           onError={() => { setError(true); setLoading(false); }}
           loading="lazy"
         />
+      ) : (
+        <div className="flex items-center justify-center h-48">
+          <LoadingSpinner size="sm" />
+        </div>
       )}
     </div>
   );

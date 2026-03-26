@@ -26,7 +26,7 @@ export interface AnalysisResult {
 
 export interface RunStatus {
   batch_id: string;
-  status: string;
+  status: 'pending' | 'queued' | 'running' | 'completed' | 'failed';
   progress_pct: number;
   completed_stages: string[];
   started_at: string | null;

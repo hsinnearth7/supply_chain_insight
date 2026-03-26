@@ -27,6 +27,7 @@ class ETLPipeline:
             Cleaned DataFrame with 11 columns.
         """
         logger.info("ETL pipeline started")
+        self.stats = {}
         df = self._extract(input_path)
         df = self._transform(df)
         if output_path:
@@ -166,12 +167,12 @@ class ETLPipeline:
         df["Reorder_Point"] = (
             df["Daily_Demand_Est"] * df["Lead_Time_Days"] + df["Safety_Stock_Target"]
         )
-        df["Stock_Status"] = df.apply(
-            lambda r: "Out of Stock" if r["Current_Stock"] == 0
-            else "Low Stock" if r["Current_Stock"] < r["Reorder_Point"]
-            else "Normal Stock",
-            axis=1,
-        )
+        conditions = [
+            df["Current_Stock"] == 0,
+            df["Current_Stock"] < df["Reorder_Point"],
+        ]
+        choices = ["Out of Stock", "Low Stock"]
+        df["Stock_Status"] = np.select(conditions, choices, default="Normal Stock")
         df["Inventory_Value"] = df["Current_Stock"] * df["Unit_Cost"]
 
         self.stats["out_of_stock"] = int((df["Stock_Status"] == "Out of Stock").sum())

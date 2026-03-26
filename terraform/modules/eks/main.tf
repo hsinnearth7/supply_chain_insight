@@ -72,7 +72,7 @@ resource "aws_security_group" "cluster" {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["10.0.0.0/8"]  # Restrict to VPC CIDR; use VPN for external access
     description = "Kubernetes API server"
   }
 
@@ -93,13 +93,13 @@ resource "aws_security_group" "cluster" {
 resource "aws_eks_cluster" "main" {
   name     = "${var.project_name}-${var.environment}"
   role_arn = aws_iam_role.cluster.arn
-  version  = "1.29"
+  version  = "1.31"
 
   vpc_config {
     subnet_ids              = var.subnet_ids
     security_group_ids      = [aws_security_group.cluster.id]
     endpoint_private_access = true
-    endpoint_public_access  = true
+    endpoint_public_access  = false
   }
 
   enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]

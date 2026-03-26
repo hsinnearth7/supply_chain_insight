@@ -10,7 +10,9 @@ const pipelineLatency = new Trend("pipeline_latency", true);
 
 // Configuration
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8000";
-const API_KEY = __ENV.API_KEY || "dev-key-change-me";
+// API_KEY must be provided: k6 run -e API_KEY=your-key loadtests/k6_api.js
+const API_KEY = __ENV.API_KEY;
+if (!API_KEY) { throw new Error("API_KEY env var is required — use: k6 run -e API_KEY=..."); }
 
 const headers = {
   "Content-Type": "application/json",
@@ -57,12 +59,12 @@ function testHealthCheck() {
   errorRate.add(!passed);
 }
 
-function testListPipelines() {
-  const res = http.get(`${BASE_URL}/api/pipelines`, { headers });
+function testListRuns() {
+  const res = http.get(`${BASE_URL}/api/runs`, { headers });
 
   const passed = check(res, {
-    "pipelines status is 200": (r) => r.status === 200,
-    "pipelines returns array": (r) => {
+    "runs status is 200": (r) => r.status === 200,
+    "runs returns array": (r) => {
       try {
         return Array.isArray(JSON.parse(r.body));
       } catch {
@@ -90,7 +92,7 @@ function testUploadAndPipeline() {
 
   const uploadHeaders = { "X-API-Key": API_KEY };
 
-  const res = http.post(`${BASE_URL}/api/upload`, formData, {
+  const res = http.post(`${BASE_URL}/api/ingest`, formData, {
     headers: uploadHeaders,
   });
 
@@ -105,15 +107,15 @@ function testUploadAndPipeline() {
 }
 
 function testGetCharts() {
-  const res = http.get(`${BASE_URL}/api/pipelines`, { headers });
+  const res = http.get(`${BASE_URL}/api/runs`, { headers });
 
   if (res.status === 200) {
     try {
       const pipelines = JSON.parse(res.body);
       if (pipelines.length > 0) {
-        const pipelineId = pipelines[0].id;
+        const runId = pipelines[0].id;
         const chartRes = http.get(
-          `${BASE_URL}/api/pipelines/${pipelineId}/charts`,
+          `${BASE_URL}/api/runs/${runId}/charts`,
           { headers }
         );
 
@@ -148,7 +150,7 @@ export default function () {
   if (rand < 0.3) {
     testHealthCheck();
   } else if (rand < 0.5) {
-    testListPipelines();
+    testListRuns();
   } else if (rand < 0.65) {
     testGetCharts();
   } else if (rand < 0.8) {

@@ -8,10 +8,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.api.routes import _running_tasks as pipeline_tasks
 from app.api.routes import router as api_router
 from app.api.routes import trigger_pipeline_from_path
+from app.audit import AuditMiddleware
 from app.config import BASE_DIR, CORS_ORIGINS, RAW_DIR
 from app.db.models import init_db
+from app.log_config import setup_logging
+from app.rbac import RBACMiddleware, init_rbac_from_env
 from app.ws.routes import ws_router
 
 # Configure logging
@@ -30,9 +34,12 @@ _watchdog_observer = None
 async def lifespan(app: FastAPI):
     """Startup / shutdown events."""
     global _watchdog_observer
+    setup_logging()
     logger.info("ChainInsight Live starting up...")
     init_db()
     logger.info("Database initialized")
+    init_rbac_from_env()
+    logger.info("RBAC initialized")
 
     # Start watchdog file monitor
     try:
@@ -60,7 +67,14 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
+    # Shutdown — cancel running pipeline tasks
+    tasks_to_cancel = list(pipeline_tasks)
+    for task in tasks_to_cancel:
+        task.cancel()
+    if tasks_to_cancel:
+        await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+        logger.info("Cancelled %d running pipeline tasks", len(tasks_to_cancel))
+
     if _watchdog_observer is not None:
         _watchdog_observer.stop()
         _watchdog_observer.join(timeout=5)
@@ -75,8 +89,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
-app.add_middleware(
+# Middleware — Starlette processes in reverse registration order (last added = outermost = runs first).
+# CORSMiddleware must be outermost so browser preflight OPTIONS (no API key) are handled
+# before RBACMiddleware rejects them.
+app.add_middleware(RBACMiddleware)          # innermost — runs last
+app.add_middleware(AuditMiddleware)         # middle
+app.add_middleware(                         # outermost — runs FIRST
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,

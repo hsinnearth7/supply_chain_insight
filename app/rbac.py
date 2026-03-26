@@ -101,15 +101,8 @@ class User:
 # User store (in-memory for now; swap with DB in production)
 # ---------------------------------------------------------------------------
 
-# Default users for development
-_user_store: dict[str, User] = {
-    "dev-key-change-me": User(
-        id="user-001",
-        username="admin",
-        role=Role.ADMIN,
-        email="admin@chaininsight.dev",
-    ),
-}
+# Populate via register_api_key() or init_rbac_from_env() — no hardcoded keys.
+_user_store: dict[str, User] = {}
 
 
 def get_user_by_api_key(api_key: str) -> User | None:
@@ -120,6 +113,31 @@ def get_user_by_api_key(api_key: str) -> User | None:
 def register_api_key(api_key: str, user: User) -> None:
     """Register a new API key -> user mapping."""
     _user_store[api_key] = user
+
+
+def init_rbac_from_env() -> None:
+    """Bootstrap the admin user from app.config.API_KEY if not already registered.
+
+    Call this once during application startup (e.g. in the FastAPI lifespan)
+    so the configured API key is recognised by the RBAC layer.
+    """
+    from app.config import API_KEY  # deferred to avoid circular imports
+
+    if not API_KEY:
+        logger.warning("No API_KEY configured — RBAC user store is empty")
+        return
+    if API_KEY in _user_store:
+        return
+    register_api_key(
+        API_KEY,
+        User(
+            id="user-001",
+            username="admin",
+            role=Role.ADMIN,
+            email="admin@chaininsight.dev",
+        ),
+    )
+    logger.info("RBAC: registered admin user from API_KEY config")
 
 
 # ---------------------------------------------------------------------------

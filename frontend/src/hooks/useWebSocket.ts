@@ -11,9 +11,12 @@ interface UseWebSocketOptions {
   enabled?: boolean;
 }
 
+const MAX_RETRIES = 10;
+
 export function useWebSocket({ url, onMessage, reconnectInterval = 3000, enabled = true }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const retryCountRef = useRef(0);
   const [connected, setConnected] = useState(false);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
@@ -22,17 +25,19 @@ export function useWebSocket({ url, onMessage, reconnectInterval = 3000, enabled
     if (!enabled || !isBrowser || typeof WebSocket === 'undefined') return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrlBase = url.startsWith('ws') ? url : `${protocol}//${window.location.host}${url}`;
+    const wsUrl = url.startsWith('ws') ? url : `${protocol}//${window.location.host}${url}`;
     const apiKey = auth.getApiKey();
-    const wsUrl = apiKey
-      ? `${wsUrlBase}${wsUrlBase.includes('?') ? '&' : '?'}api_key=${encodeURIComponent(apiKey)}`
-      : wsUrlBase;
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
       setConnected(true);
+      retryCountRef.current = 0;
+      // Send API key as first message for authentication
+      if (apiKey) {
+        ws.send(JSON.stringify({ type: 'auth', api_key: apiKey }));
+      }
     };
 
     ws.onmessage = (event) => {
@@ -48,7 +53,11 @@ export function useWebSocket({ url, onMessage, reconnectInterval = 3000, enabled
       setConnected(false);
       wsRef.current = null;
       if (event.code !== 4003 && enabled) {
-        reconnectTimer.current = setTimeout(connect, reconnectInterval);
+        if (retryCountRef.current < MAX_RETRIES) {
+          const delay = Math.min(reconnectInterval * Math.pow(2, retryCountRef.current), 30000);
+          retryCountRef.current++;
+          reconnectTimer.current = setTimeout(connect, delay);
+        }
       }
     };
 
@@ -58,6 +67,7 @@ export function useWebSocket({ url, onMessage, reconnectInterval = 3000, enabled
   }, [url, reconnectInterval, enabled]);
 
   useEffect(() => {
+    retryCountRef.current = 0;
     connect();
     return () => {
       clearTimeout(reconnectTimer.current);

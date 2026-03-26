@@ -19,7 +19,7 @@ import pandas as pd
 from scipy import stats as scipy_stats
 
 from app.forecasting.models import ForecastModel
-from app.logging import get_logger
+from app.log_config import get_logger
 from app.settings import get_eval_config
 
 logger = get_logger(__name__)
@@ -30,12 +30,39 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Mean Absolute Percentage Error (handles zeros)."""
-    mask = y_true > 0
+def mape(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    zero_handling: str = "mask",
+    epsilon: float = 1.0,
+) -> float:
+    """Mean Absolute Percentage Error (handles zeros).
+
+    Zero-handling behavior:
+      - 'mask' (default): excludes zero actuals from the calculation entirely.
+        This inflates accuracy when many true values are zero because those
+        (potentially large) forecast errors are silently dropped.
+      - 'epsilon': replaces zero actuals with ``epsilon`` so that every
+        observation contributes to the error metric.
+
+    Args:
+        y_true: Actual values.
+        y_pred: Predicted values.
+        zero_handling: Strategy for zero actuals — 'mask' or 'epsilon'.
+        epsilon: Replacement value when zero_handling='epsilon'.
+
+    Returns:
+        MAPE as a percentage (e.g. 12.5 means 12.5%).
+    """
+    if zero_handling == "epsilon":
+        mask = np.ones(len(y_true), dtype=bool)
+        y_true_safe = np.where(y_true == 0, epsilon, y_true)
+    else:
+        mask = y_true > 0
+        y_true_safe = y_true
     if mask.sum() == 0:
-        return 0.0
-    return float(np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100)
+        return float('nan')
+    return float(np.mean(np.abs((y_true_safe[mask] - y_pred[mask]) / y_true_safe[mask])) * 100)
 
 
 def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -213,6 +240,9 @@ def wilcoxon_test(
 def cohens_d(group1: list[float], group2: list[float]) -> dict[str, Any]:
     """Cohen's d effect size.
 
+    Positive d means group1 > group2 (baseline worse than model = improvement).
+    The sign is preserved to indicate directionality.
+
     Returns:
         Dict with d value, magnitude (S/M/L), and interpretation.
     """
@@ -228,12 +258,13 @@ def cohens_d(group1: list[float], group2: list[float]) -> dict[str, Any]:
     if pooled_std == 0:
         return {"d": 0, "magnitude": "N/A", "interpretation": "Zero variance"}
 
-    d = abs(float((mean1 - mean2) / pooled_std))
+    d = float((mean1 - mean2) / pooled_std)
 
-    if d < 0.5:
+    abs_d = abs(d)
+    if abs_d < 0.5:
         magnitude = "S"
         interpretation = "Small effect"
-    elif d < 0.8:
+    elif abs_d < 0.8:
         magnitude = "M"
         interpretation = "Medium effect"
     else:
@@ -247,7 +278,7 @@ def confidence_interval(values: list[float], confidence: float = 0.95) -> tuple[
     """Compute confidence interval for a list of values."""
     n = len(values)
     if n < 2:
-        return (float(np.mean(values)), float(np.mean(values)))
+        return (float('nan'), float('nan'))
 
     mean = np.mean(values)
     se = scipy_stats.sem(values)
@@ -281,6 +312,9 @@ class ConformalPredictor:
         Returns:
             Calibrated quantile value.
         """
+        if len(y_true) == 0 or len(y_pred) == 0:
+            self._quantile = 0.0
+            return 0.0
         residuals = np.abs(y_true - y_pred)
         alpha = 1 - self.target_coverage
         # Finite-sample correction
@@ -302,6 +336,7 @@ class ConformalPredictor:
         if self._quantile is None:
             raise ValueError("Must call calibrate() before predict_intervals()")
 
+        # TODO: For proportional intervals, calibrate on relative residuals instead
         y_lo = np.maximum(0, y_pred - self._quantile)
         y_hi = y_pred + self._quantile
         return y_lo, y_hi
@@ -369,7 +404,7 @@ def build_benchmark_table(
         if not mapes:
             continue
 
-        mean_mape = round(float(np.mean(mapes)), 1)
+        mean_mape = round(float(np.nanmean(mapes)), 1)
         ci = confidence_interval(mapes)
 
         vs_baseline = None
@@ -378,7 +413,7 @@ def build_benchmark_table(
         cd_mag = None
 
         if name != baseline_name and baseline_mapes:
-            vs_baseline = round(mean_mape - float(np.mean(baseline_mapes)), 1)
+            vs_baseline = round(mean_mape - float(np.nanmean(baseline_mapes)), 1)
             test_result = wilcoxon_test(baseline_mapes, mapes)
             p_val = test_result["p_value"]
             d_result = cohens_d(baseline_mapes, mapes)
@@ -399,7 +434,7 @@ def build_benchmark_table(
             )
         )
 
-    benchmarks.sort(key=lambda b: b.mape_mean)
+    benchmarks.sort(key=lambda b: b.mape_mean if not np.isnan(b.mape_mean) else float('inf'))
     return benchmarks
 
 
@@ -425,6 +460,12 @@ def run_ablation_study(
     Returns:
         List of dicts with ablation results.
     """
+    # NOT IMPLEMENTED: This is a placeholder stub. The per-group ablation loop
+    # does not actually retrain the model with features removed — it only records
+    # skeleton entries with None values. Do not rely on these results.
+    import logging
+    logging.getLogger(__name__).warning("Ablation study is a placeholder — results are not real")
+
     # Full model baseline
     full_results = walk_forward_cv(model, Y_df)
     full_mapes = [r.metrics["mape"] for r in full_results]
@@ -480,7 +521,7 @@ def routing_threshold_sensitivity(
         model = RoutingEnsemble(cold_start_threshold_days=threshold)
         cv_results = walk_forward_cv(model, Y_df)
         mapes = [r.metrics["mape"] for r in cv_results]
-        mean_mape = round(float(np.mean(mapes)), 1) if mapes else None
+        mean_mape = round(float(np.nanmean(mapes)), 1) if mapes else None
         results.append({"threshold_days": threshold, "mape": mean_mape})
         logger.info("threshold_sensitivity", threshold=threshold, mape=mean_mape)
 

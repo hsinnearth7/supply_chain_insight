@@ -183,6 +183,107 @@ def run_validation(
                     passed = expected_set.issubset(actual_set)
                 message = f"Column set {'exact' if exact else 'subset'} match: {passed}"
 
+            elif exp_type == "expect_column_values_to_be_unique":
+                col = kwargs["column"]
+                if col in df.columns:
+                    has_dups = df[col].duplicated().any()
+                    passed = not has_dups
+                    dup_count = df[col].duplicated().sum()
+                    message = f"Column '{col}': {'no' if passed else dup_count} duplicate values"
+                else:
+                    message = f"Column '{col}' not found in data"
+
+            elif exp_type == "expect_column_values_to_match_strftime_format":
+                col = kwargs["column"]
+                fmt = kwargs.get("strftime_format", "%Y-%m-%d")
+                if col in df.columns:
+                    import pandas as pd
+                    parsed = pd.to_datetime(df[col], format=fmt, errors="coerce")
+                    nat_count = parsed.isna().sum()
+                    original_na = df[col].isna().sum()
+                    failed = nat_count - original_na
+                    passed = failed == 0
+                    message = (
+                        f"Column '{col}': {failed} values do not match "
+                        f"format '{fmt}'"
+                    )
+                else:
+                    message = f"Column '{col}' not found in data"
+
+            elif exp_type == "expect_column_distinct_values_to_be_in_set":
+                col = kwargs["column"]
+                value_set = set(kwargs.get("value_set", []))
+                if col in df.columns:
+                    actual = set(df[col].dropna().unique())
+                    passed = actual.issubset(value_set)
+                    extra = actual - value_set
+                    message = (
+                        f"Column '{col}': distinct values "
+                        f"{'are' if passed else 'are NOT'} subset of expected set"
+                        f"{'' if passed else f'; unexpected: {extra}'}"
+                    )
+                else:
+                    message = f"Column '{col}' not found in data"
+
+            elif exp_type == "expect_column_distinct_values_to_contain_set":
+                col = kwargs["column"]
+                value_set = set(kwargs.get("value_set", []))
+                if col in df.columns:
+                    actual = set(df[col].dropna().unique())
+                    passed = value_set.issubset(actual)
+                    missing = value_set - actual
+                    message = (
+                        f"Column '{col}': "
+                        f"{'contains' if passed else 'missing from'} expected set"
+                        f"{'' if passed else f'; missing: {missing}'}"
+                    )
+                else:
+                    message = f"Column '{col}' not found in data"
+
+            elif exp_type == "expect_column_mean_to_be_between":
+                col = kwargs["column"]
+                min_val = kwargs["min_value"]
+                max_val = kwargs["max_value"]
+                if col in df.columns:
+                    mean_val = df[col].mean()
+                    passed = min_val <= mean_val <= max_val
+                    message = (
+                        f"Column '{col}': mean={mean_val:.4f} "
+                        f"(expected between {min_val} and {max_val})"
+                    )
+                else:
+                    message = f"Column '{col}' not found in data"
+
+            elif exp_type == "expect_column_stdev_to_be_between":
+                col = kwargs["column"]
+                min_val = kwargs["min_value"]
+                max_val = kwargs["max_value"]
+                if col in df.columns:
+                    std_val = df[col].std()
+                    passed = min_val <= std_val <= max_val
+                    message = (
+                        f"Column '{col}': stdev={std_val:.4f} "
+                        f"(expected between {min_val} and {max_val})"
+                    )
+                else:
+                    message = f"Column '{col}' not found in data"
+
+            elif exp_type == "expect_column_proportion_of_unique_values_to_be_between":
+                col = kwargs["column"]
+                min_val = kwargs["min_value"]
+                max_val = kwargs["max_value"]
+                if col in df.columns:
+                    n_unique = df[col].nunique()
+                    n_total = len(df[col])
+                    proportion = n_unique / n_total if n_total > 0 else 0.0
+                    passed = min_val <= proportion <= max_val
+                    message = (
+                        f"Column '{col}': unique proportion={proportion:.4f} "
+                        f"(expected between {min_val} and {max_val})"
+                    )
+                else:
+                    message = f"Column '{col}' not found in data"
+
             else:
                 passed = True
                 message = f"Skipped (unimplemented): {exp_type}"

@@ -79,3 +79,30 @@ class TestReconciliation:
         reconciled = reconciler.reconcile(Y_hat, S, tags)
 
         assert (reconciled["y_hat_reconciled"] >= 0).all()
+
+    def test_mintrace_reconciliation(self, hierarchy_data):
+        """Test MinTrace reconciliation produces additive consistency."""
+        Y_df, S_df = hierarchy_data
+        Y_agg, S, tags = aggregate_to_hierarchy(Y_df, S_df)
+
+        # Create base forecasts with noise
+        Y_hat = Y_agg[["unique_id", "ds"]].copy()
+        Y_hat["y_hat"] = Y_agg["y"] * 1.05  # 5% over-forecast
+
+        reconciler = HierarchicalForecaster(method="mint_shrink")
+        reconciled = reconciler.reconcile(Y_hat, S, tags)
+
+        assert "y_hat_reconciled" in reconciled.columns
+        assert len(reconciled) > 0
+
+        # Verify additive consistency: national total == sum of warehouses
+        for ds in reconciled["ds"].unique():
+            day = reconciled[reconciled["ds"] == ds]
+            national = day[day["unique_id"] == "Total"]["y_hat_reconciled"].values
+            wh_ids = [uid for uid in tags["warehouse"]]
+            wh_sum = day[day["unique_id"].isin(wh_ids)]["y_hat_reconciled"].sum()
+            if len(national) > 0:
+                np.testing.assert_almost_equal(
+                    national[0], wh_sum, decimal=1,
+                    err_msg=f"MinTrace not additive on {ds}",
+                )

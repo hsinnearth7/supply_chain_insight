@@ -54,7 +54,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: chaininsight-secret
-                  key: API_KEY
+                  key: POSTGRES_PASSWORD
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           resources:

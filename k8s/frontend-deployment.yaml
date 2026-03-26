@@ -25,9 +25,13 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: chaininsight/frontend:latest
+          image: chaininsight/frontend:latest  # TODO: Use semantic version tag, not :latest
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               protocol: TCP
           resources:
             requests:
@@ -39,7 +43,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 10
             periodSeconds: 15
             timeoutSeconds: 3
@@ -47,7 +51,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3

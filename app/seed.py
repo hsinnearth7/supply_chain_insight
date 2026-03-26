@@ -19,6 +19,8 @@ import numpy as np
 
 GLOBAL_SEED = 42
 
+_rng: np.random.Generator | None = None
+
 
 def set_global_seed(seed: int = GLOBAL_SEED) -> None:
     """Set all random seeds for reproducibility.
@@ -26,9 +28,18 @@ def set_global_seed(seed: int = GLOBAL_SEED) -> None:
     Args:
         seed: Integer seed value. Default 42.
     """
+    global _rng, GLOBAL_SEED
+
+    GLOBAL_SEED = seed
     os.environ["PYTHONHASHSEED"] = str(seed)
     random.seed(seed)
+
+    # Legacy global seed (kept for backward compatibility with libraries that
+    # still read the global RandomState).
     np.random.seed(seed)
+
+    # Preferred: modern Generator API (avoids the deprecated global state).
+    _rng = np.random.default_rng(seed)
 
     try:
         import torch
@@ -40,6 +51,14 @@ def set_global_seed(seed: int = GLOBAL_SEED) -> None:
             torch.backends.cudnn.benchmark = False
     except ImportError:
         pass
+
+
+def get_rng() -> np.random.Generator:
+    """Return the module-level numpy Generator, initialising on first call."""
+    global _rng
+    if _rng is None:
+        set_global_seed()
+    return _rng  # type: ignore[return-value]
 
 
 def get_seed() -> int:

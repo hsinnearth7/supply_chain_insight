@@ -13,10 +13,9 @@ function getApiKey(): string {
     const storedKey = window.localStorage.getItem('ci-api-key')?.trim();
     if (storedKey) return storedKey;
 
-    if (
-      explicitDevKey &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    ) {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isLocalhost && explicitDevKey) {
+      console.warn('[ChainInsight] Using dev API key — do not use in production');
       return explicitDevKey;
     }
   }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   PieChart,
   Pie,
@@ -33,13 +33,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const setLatestBatchId = useAppStore((s) => s.setLatestBatchId);
+  const latestBatchId = useAppStore((s) => s.latestBatchId);
   const { t } = useTranslation();
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  async function loadData() {
+  const loadData = useCallback(async function loadData() {
     try {
       const kpis = await api.getLatestKPIs();
       setKpiData(kpis);
@@ -51,44 +48,42 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [setLatestBatchId]);
 
-  if (loading) return <LoadingSpinner text={t('dashboard.loading')} />;
-  if (error) return <div className="text-ci-danger text-center py-12">{error}</div>;
-  if (!kpiData) return <div className="text-ci-gray text-center py-12">{t('dashboard.noData')}</div>;
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
-  const kpis = kpiData.kpis as Record<string, number>;
-
-  const statusCounts = inventory.reduce<Record<string, number>>((acc, row) => {
+  const statusCounts = useMemo(() => inventory.reduce<Record<string, number>>((acc, row) => {
     acc[row.stock_status] = (acc[row.stock_status] || 0) + 1;
     return acc;
-  }, {});
-  const pieData = Object.entries(statusCounts).map(([name, value]) => ({ name, value }));
+  }, {}), [inventory]);
+  const pieData = useMemo(() => Object.entries(statusCounts).map(([name, value]) => ({ name, value })), [statusCounts]);
 
-  const categoryData = inventory.reduce<Record<string, number>>((acc, row) => {
+  const categoryData = useMemo(() => inventory.reduce<Record<string, number>>((acc, row) => {
     acc[row.category] = (acc[row.category] || 0) + row.inventory_value;
     return acc;
-  }, {});
-  const barData = Object.entries(categoryData)
+  }, {}), [inventory]);
+  const barData = useMemo(() => Object.entries(categoryData)
     .map(([category, value]) => ({ category, value: Math.round(value) }))
-    .sort((a, b) => b.value - a.value);
+    .sort((a, b) => b.value - a.value), [categoryData]);
 
-  const vendorPerf = inventory.reduce<Record<string, { count: number; totalValue: number; oos: number }>>((acc, row) => {
+  const vendorPerf = useMemo(() => inventory.reduce<Record<string, { count: number; totalValue: number; oos: number }>>((acc, row) => {
     if (!acc[row.vendor_name]) acc[row.vendor_name] = { count: 0, totalValue: 0, oos: 0 };
     acc[row.vendor_name].count++;
     acc[row.vendor_name].totalValue += row.inventory_value;
     if (row.stock_status === 'Out of Stock') acc[row.vendor_name].oos++;
     return acc;
-  }, {});
-  const vendorRows = Object.entries(vendorPerf).map(([vendor, data]) => ({
+  }, {}), [inventory]);
+  const vendorRows = useMemo(() => Object.entries(vendorPerf).map(([vendor, data]) => ({
     vendor_name: vendor,
     products: data.count,
     total_value: Math.round(data.totalValue),
     oos_count: data.oos,
     oos_rate: `${((data.oos / data.count) * 100).toFixed(1)}%`,
-  }));
+  })), [vendorPerf]);
 
-  const stockoutAlerts = inventory
+  const stockoutAlerts = useMemo(() => inventory
     .filter((r) => {
       const dsi = r.daily_demand_est > 0 ? r.current_stock / r.daily_demand_est : 999;
       return dsi < r.lead_time_days;
@@ -101,7 +96,28 @@ export default function DashboardPage() {
       lead_time: r.lead_time_days,
       dsi: r.daily_demand_est > 0 ? (r.current_stock / r.daily_demand_est).toFixed(1) : 'N/A',
       status: r.stock_status,
-    }));
+    })), [inventory]);
+
+  if (loading) return <LoadingSpinner text={t('dashboard.loading')} />;
+  if (error) return (
+    <div className="text-red-500 p-4 text-center">
+      <p>{error}</p>
+      <button onClick={loadData} className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+        Retry
+      </button>
+    </div>
+  );
+  if (!kpiData) return <div className="text-ci-gray text-center py-12">{t('dashboard.noData')}</div>;
+
+  const kpis = kpiData.kpis ?? {};
+  const getValue = (key: string): number => {
+    const v = (kpis as Record<string, unknown>)[key];
+    return typeof v === 'number' ? v : 0;
+  };
+  const getValueOrNull = (key: string): number | null => {
+    const v = (kpis as Record<string, unknown>)[key];
+    return typeof v === 'number' ? v : null;
+  };
 
   return (
     <div className="space-y-6">
@@ -110,32 +126,32 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <KPICard
           title={t('dashboard.inventoryTurnover')}
-          value={typeof kpis.inventory_turnover === 'number' ? kpis.inventory_turnover.toFixed(2) : '--'}
+          value={getValueOrNull('inventory_turnover') != null ? getValue('inventory_turnover').toFixed(2) : '--'}
           icon="IT"
           color="ci-primary"
         />
         <KPICard
           title={t('dashboard.avgDSI')}
-          value={typeof kpis.avg_dsi === 'number' ? kpis.avg_dsi.toFixed(1) : '--'}
+          value={getValueOrNull('avg_dsi') != null ? getValue('avg_dsi').toFixed(1) : '--'}
           subtitle={t('dashboard.days')}
           icon="DSI"
           color="ci-teal"
         />
         <KPICard
           title={t('dashboard.oosRate')}
-          value={kpis.oos_rate != null ? `${kpis.oos_rate.toFixed(1)}%` : '--'}
+          value={getValueOrNull('oos_rate') != null ? `${getValue('oos_rate').toFixed(1)}%` : '--'}
           icon="OOS"
           color="ci-danger"
         />
         <KPICard
           title={t('dashboard.slowMovingValue')}
-          value={kpis.slow_moving_value != null ? `$${Math.round(kpis.slow_moving_value).toLocaleString()}` : '--'}
+          value={getValueOrNull('slow_moving_value') != null ? `$${Math.round(getValue('slow_moving_value')).toLocaleString()}` : '--'}
           icon="SM"
           color="ci-warning"
         />
         <KPICard
           title={t('dashboard.totalValue')}
-          value={kpis.total_inventory_value != null ? `$${Math.round(kpis.total_inventory_value).toLocaleString()}` : '--'}
+          value={getValueOrNull('total_inventory_value') != null ? `$${Math.round(getValue('total_inventory_value')).toLocaleString()}` : '--'}
           icon="INV"
           color="ci-success"
         />

@@ -25,6 +25,7 @@ from app.config import (
     CHART_DPI,
     CHART_TEXT_COLOR,
     CHARTS_DIR,
+    DSI_SENTINEL,
     RISK_LEVEL_BINS,
     RISK_LEVEL_LABELS,
     SHAPIRO_SAMPLE_LIMIT,
@@ -49,10 +50,12 @@ class StatisticalAnalyzer:
         """Add derived columns needed for statistical analysis."""
         df = enrich_base(df)
         w_lt, w_cov, w_demand = SUPPLY_RISK_WEIGHTS
+        lt_max = df["Lead_Time_Days"].max() or 1
+        demand_max = df["Daily_Demand_Est"].max() or 1
         df["Supply_Risk_Score"] = (
-            df["Lead_Time_Days"] / df["Lead_Time_Days"].max() * w_lt
+            df["Lead_Time_Days"] / lt_max * w_lt
             + (1 - df["Stock_Coverage_Ratio"].clip(0, 3) / 3) * w_cov
-            + df["Daily_Demand_Est"] / df["Daily_Demand_Est"].max() * w_demand
+            + df["Daily_Demand_Est"] / demand_max * w_demand
         )
         return df
 
@@ -63,14 +66,14 @@ class StatisticalAnalyzer:
             df["DSI"] = np.where(
                 df["Daily_Demand_Est"] > 0,
                 df["Current_Stock"] / df["Daily_Demand_Est"],
-                999,
+                DSI_SENTINEL,
             )
         df["Days_to_Deplete"] = df["DSI"]
         df["Suggested_Reorder"] = (df["Reorder_Point"] - df["Current_Stock"]).clip(lower=0)
 
         # ABC Classification
         df_sorted = df.sort_values("Inventory_Value", ascending=False).reset_index(drop=True)
-        total_value = df_sorted["Inventory_Value"].sum()
+        total_value = max(df_sorted["Inventory_Value"].sum(), 1e-9)
         df_sorted["Cumulative_Pct"] = df_sorted["Inventory_Value"].cumsum() / total_value * 100
         df_sorted["ABC_Class"] = np.where(
             df_sorted["Cumulative_Pct"] <= ABC_THRESHOLD_A, "A",
@@ -108,8 +111,8 @@ class StatisticalAnalyzer:
         oos_count = (df["Stock_Status"] == "Out of Stock").sum()
         self.results["kpis"] = {
             "inventory_turnover": round(365 / avg_dsi, 1) if avg_dsi > 0 else 0,
-            "avg_dsi": round(avg_dsi, 1),
-            "oos_rate": round(oos_count / total_skus * 100, 1),
+            "avg_dsi": round(avg_dsi, 1) if not np.isnan(avg_dsi) else 0.0,
+            "oos_rate": round(oos_count / total_skus * 100, 1) if total_skus > 0 else 0.0,
             "oos_count": int(oos_count),
             "total_skus": int(total_skus),
             "slow_moving_value": float(df.loc[df["DSI"] > 90, "Inventory_Value"].sum()),
@@ -349,8 +352,9 @@ class StatisticalAnalyzer:
             ax_hist = axes[row, col_idx]
             ax_hist.hist(data, bins=50, density=True, alpha=0.6, color=color, edgecolor="white")
             kde_x = np.linspace(data.min(), data.max(), 300)
-            kde = stats.gaussian_kde(data)
-            ax_hist.plot(kde_x, kde(kde_x), color=CHART_TEXT_COLOR, lw=2)
+            if data.std() > 0:
+                kde = stats.gaussian_kde(data)
+                ax_hist.plot(kde_x, kde(kde_x), color=CHART_TEXT_COLOR, lw=2)
             ax_hist.set_title(label, fontsize=11, fontweight="bold")
             ax_hist.set_ylabel("Density")
             skew_val = data.skew()

@@ -1,5 +1,6 @@
 """ETL pipeline tests."""
 
+import os
 import tempfile
 
 import pytest
@@ -47,9 +48,13 @@ class TestETLPipeline:
             f.write("")
             path = f.name
 
-        etl = ETLPipeline()
-        with pytest.raises(ValueError, match="empty"):
-            etl.run(path)
+        try:
+            etl = ETLPipeline()
+            with pytest.raises(ValueError, match="empty"):
+                etl.run(path)
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
 
     def test_etl_validates_schema(self):
         """Verify missing columns are caught."""
@@ -57,9 +62,13 @@ class TestETLPipeline:
             f.write("A,B,C\n1,2,3\n")
             path = f.name
 
-        etl = ETLPipeline()
-        with pytest.raises(ValueError, match="missing required columns"):
-            etl.run(path)
+        try:
+            etl = ETLPipeline()
+            with pytest.raises(ValueError, match="missing required columns"):
+                etl.run(path)
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
 
     def test_etl_stats(self, sample_csv_file):
         """Verify pipeline statistics are captured."""

@@ -1,6 +1,7 @@
 """Security tests: path traversal, auth, CORS, upload limits."""
 
 import asyncio
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -126,15 +127,20 @@ class TestUploadSecurity:
         )
         assert resp.status_code == 200
 
-    def test_ingest_existing_invalid_csv_rejected(self, client, auth_headers):
+    def test_ingest_existing_invalid_csv_rejected(self, client, auth_headers, monkeypatch):
         """Verify existing-file ingest enforces the same CSV validation rules."""
-        invalid_path = RAW_DIR / "SecurityDirty.csv"
+        from app.api import routes
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        monkeypatch.setattr(routes, "RAW_DIR", tmp_dir)
+        invalid_path = tmp_dir / "SecurityDirty.csv"
         invalid_path.write_bytes(b"\x00\x01\x02binary")
         try:
             resp = client.post("/api/ingest/existing", headers=auth_headers)
         finally:
             if invalid_path.exists():
                 invalid_path.unlink()
+            tmp_dir.rmdir()
         assert resp.status_code == 400
 
 
@@ -142,7 +148,8 @@ class TestWatchdogValidation:
     """Verify watchdog-triggered ingests use the same CSV validation rules."""
 
     def test_wait_for_stable_csv_rejects_invalid_content(self):
-        csv_path = Path("watchdog_invalid_test.csv")
+        tmp_dir = Path(tempfile.mkdtemp())
+        csv_path = tmp_dir / "watchdog_invalid_test.csv"
         csv_path.write_bytes(b"\x00\x01\x02binary")
         try:
             with pytest.raises(HTTPException) as exc_info:
@@ -150,10 +157,12 @@ class TestWatchdogValidation:
         finally:
             if csv_path.exists():
                 csv_path.unlink()
+            tmp_dir.rmdir()
         assert exc_info.value.status_code == 400
 
     def test_wait_for_stable_csv_rejects_non_csv_extension(self):
-        txt_path = Path("watchdog_invalid_test.txt")
+        tmp_dir = Path(tempfile.mkdtemp())
+        txt_path = tmp_dir / "watchdog_invalid_test.txt"
         txt_path.write_text("a,b\n1,2\n", encoding="utf-8")
         try:
             with pytest.raises(HTTPException) as exc_info:
@@ -161,11 +170,16 @@ class TestWatchdogValidation:
         finally:
             if txt_path.exists():
                 txt_path.unlink()
+            tmp_dir.rmdir()
         assert exc_info.value.status_code == 400
 
-    def test_prune_watchdog_staging_removes_expired_files(self):
-        old_path = WATCHDOG_STAGING_DIR / "old-stage.csv"
-        new_path = WATCHDOG_STAGING_DIR / "new-stage.csv"
+    def test_prune_watchdog_staging_removes_expired_files(self, monkeypatch):
+        from app.api import routes
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        monkeypatch.setattr(routes, "WATCHDOG_STAGING_DIR", tmp_dir)
+        old_path = tmp_dir / "old-stage.csv"
+        new_path = tmp_dir / "new-stage.csv"
         old_path.write_text("a,b\n1,2\n", encoding="utf-8")
         new_path.write_text("a,b\n1,2\n", encoding="utf-8")
         try:
@@ -184,11 +198,14 @@ class TestWatchdogValidation:
                 old_path.unlink()
             if new_path.exists():
                 new_path.unlink()
+            tmp_dir.rmdir()
 
     def test_trigger_pipeline_from_path_preserves_original_filename(self, monkeypatch, sample_csv_content):
         from app.api import routes
 
-        raw_path = RAW_DIR / "OriginalDirty.csv"
+        tmp_dir = Path(tempfile.mkdtemp())
+        monkeypatch.setattr(routes, "RAW_DIR", tmp_dir)
+        raw_path = tmp_dir / "OriginalDirty.csv"
         raw_path.write_text(sample_csv_content, encoding="utf-8")
         captured: dict[str, object] = {}
 

@@ -7,7 +7,7 @@
 [![CI](https://img.shields.io/badge/CI-passing-brightgreen.svg)](.github/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests: 200+](https://img.shields.io/badge/tests-200+-blue.svg)](tests/)
+[![Tests: 192](https://img.shields.io/badge/tests-192-blue.svg)](tests/)
 [![Coverage: 85%+](https://img.shields.io/badge/coverage-85%25+-yellow.svg)](tests/)
 [![Docker](https://img.shields.io/badge/docker-compose-2496ED.svg)](docker-compose.yml)
 
@@ -224,7 +224,7 @@ ChainInsight/
 │   └── seed.py                         # Global seed management
 ├── configs/
 │   └── chaininsight.yaml               # All hyperparameters (no hard-coded values)
-├── tests/                              # 200+ tests (14 files)
+├── tests/                              # 192 tests (14 files)
 │   ├── test_forecasting_models.py      # Unified interface, factory, routing (53)
 │   ├── test_data_generator.py          # Schema, M5 properties, hierarchy (27)
 │   ├── test_config.py                  # YAML + section loading (24)
@@ -359,7 +359,7 @@ python -m app.forecasting.data_generator --validate-only
 
 ## Testing
 
-**200+ tests** across 14 test files, covering Google ML Test Score 4 categories:
+**192 tests** across 14 test files, covering Google ML Test Score 4 categories:
 
 | Category | Tests | Examples |
 |----------|-------|---------|
@@ -402,35 +402,6 @@ See full analysis: [`docs/failure_modes.md`](docs/failure_modes.md)
 | **Frontend** | React 18, Vite, Tailwind CSS, Recharts, Zustand |
 | **Infrastructure** | Docker, GitHub Actions CI/CD, pre-commit (ruff + mypy) |
 | **Testing** | pytest, Hypothesis (property-based), httpx |
-
----
-
-## References
-
-1. Makridakis, S., Spiliotis, E., & Assimakopoulos, V. (2022). "The M5 accuracy competition: Results, findings, and conclusions." *International Journal of Forecasting*, 38(4), 1346–1364.
-2. Ke, G., Meng, Q., Finley, T., et al. (2017). "LightGBM: A Highly Efficient Gradient Boosting Decision Tree." *NeurIPS 2017*.
-3. Ansari, A. F., Stella, L., Turkmen, C., et al. (2024). "Chronos: Learning the Language of Time Series." *arXiv:2403.07815*.
-4. Wickramasuriya, S. L., Athanasopoulos, G., & Hyndman, R. J. (2019). "Optimal Forecast Reconciliation for Hierarchical and Grouped Time Series Through Trace Minimization." *JASA*, 114(526), 804–819.
-5. Thomé, A. M. T., et al. (2012). "Sales and Operations Planning: A Research Synthesis." *International Journal of Production Economics*, 138(1), 1–13.
-6. Mitchell, M., Wu, S., Zaldivar, A., et al. (2019). "Model Cards for Model Reporting." *FAT\* 2019*.
-7. Pineau, J. et al. (2019). "The Machine Learning Reproducibility Checklist." *NeurIPS 2019*.
-8. Zügner, D. et al. (2021). "Google ML Test Score: A Rubric for ML Production Readiness." *Google Research*.
-
----
-
-## License
-
-MIT License — see [LICENSE](LICENSE).
-
----
-
-<div align="center">
-
-**MAPE 10.3% · S&OP Simulation · AP > CP · Graceful Degradation · 200+ Tests**
-
-*Built with statistical rigor. Designed for production reliability.*
-
-</div>
 
 ---
 
@@ -562,3 +533,44 @@ terraform init && terraform plan && terraform apply
 cd terraform/environments/prod
 terraform init && terraform plan && terraform apply
 ```
+
+---
+
+## References
+
+1. Makridakis, S., Spiliotis, E., & Assimakopoulos, V. (2022). "The M5 accuracy competition: Results, findings, and conclusions." *International Journal of Forecasting*, 38(4), 1346–1364.
+2. Ke, G., Meng, Q., Finley, T., et al. (2017). "LightGBM: A Highly Efficient Gradient Boosting Decision Tree." *NeurIPS 2017*.
+3. Ansari, A. F., Stella, L., Turkmen, C., et al. (2024). "Chronos: Learning the Language of Time Series." *arXiv:2403.07815*.
+4. Wickramasuriya, S. L., Athanasopoulos, G., & Hyndman, R. J. (2019). "Optimal Forecast Reconciliation for Hierarchical and Grouped Time Series Through Trace Minimization." *JASA*, 114(526), 804–819.
+5. Thomé, A. M. T., et al. (2012). "Sales and Operations Planning: A Research Synthesis." *International Journal of Production Economics*, 138(1), 1–13.
+6. Mitchell, M., Wu, S., Zaldivar, A., et al. (2019). "Model Cards for Model Reporting." *FAT\* 2019*.
+7. Pineau, J. et al. (2019). "The Machine Learning Reproducibility Checklist." *NeurIPS 2019*.
+8. Zügner, D. et al. (2021). "Google ML Test Score: A Rubric for ML Production Readiness." *Google Research*.
+
+---
+
+## Contributing
+
+Contributions are welcome! Here's how you can help:
+
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/your-feature`)
+3. **Commit** your changes
+4. **Push** to the branch (`git push origin feature/your-feature`)
+5. **Open** a Pull Request
+
+---
+
+## License
+
+MIT License — see [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+**MAPE 10.3% · S&OP Simulation · AP > CP · Graceful Degradation · 192 Tests**
+
+*Built with statistical rigor. Designed for production reliability.*
+
+</div>

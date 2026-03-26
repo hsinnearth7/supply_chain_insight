@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { api } from '../api/client';
 import { useAppStore } from '../stores/appStore';
@@ -20,21 +20,21 @@ const CHART_NAMES = [
   { file: 'chart_08_pairplot_regression.png', label: 'Pairplot & Regression' },
 ];
 
+const numericCols = ['unit_cost', 'current_stock', 'daily_demand_est', 'safety_stock_target', 'lead_time_days', 'reorder_point', 'inventory_value'];
+
 export default function StatsPage() {
   const [tab, setTab] = useState<'interactive' | 'png' | 'data'>('interactive');
   const [batchId, setBatchId] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const latestBatchId = useAppStore((s) => s.latestBatchId);
   const { t } = useTranslation();
 
-  useEffect(() => {
-    loadData();
-  }, [latestBatchId]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       let bid = latestBatchId;
       if (!bid) {
@@ -49,51 +49,68 @@ export default function StatsPage() {
       setAnalysis(analysisData);
       setInventory(invData);
     } catch {
-      // No data available
+      setError('Failed to load data');
     } finally {
       setLoading(false);
     }
-  }
+  }, [latestBatchId]);
 
-  if (loading) return <LoadingSpinner text={t('stats.loading')} />;
-  if (!batchId) return <div className="text-ci-gray text-center py-12">{t('stats.noData')}</div>;
-
-  // Build interactive chart data
-  const numericCols = ['unit_cost', 'current_stock', 'daily_demand_est', 'safety_stock_target', 'lead_time_days', 'reorder_point', 'inventory_value'];
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // Distribution histogram data (unit_cost buckets)
-  const costValues = inventory.map((r) => r.unit_cost).filter(Boolean);
-  const minCost = Math.min(...costValues);
-  const maxCost = Math.max(...costValues);
-  const bucketSize = (maxCost - minCost) / 10 || 1;
-  const histData: { range: string; count: number }[] = [];
-  for (let i = 0; i < 10; i++) {
-    const lo = minCost + i * bucketSize;
-    const hi = lo + bucketSize;
-    const count = costValues.filter((v) => v >= lo && (i === 9 ? v <= hi : v < hi)).length;
-    histData.push({ range: `$${lo.toFixed(0)}-${hi.toFixed(0)}`, count });
-  }
+  const histData = useMemo(() => {
+    if (inventory.length === 0) return [];
+    const costValues = inventory.map((r) => r.unit_cost).filter(Boolean);
+    if (costValues.length === 0) return [];
+    const minCost = Math.min(...costValues);
+    const maxCost = Math.max(...costValues);
+    const bucketSize = (maxCost - minCost) / 10 || 1;
+    const result: { range: string; count: number }[] = [];
+    for (let i = 0; i < 10; i++) {
+      const lo = minCost + i * bucketSize;
+      const hi = lo + bucketSize;
+      const count = costValues.filter((v) => v >= lo && (i === 9 ? v <= hi : v < hi)).length;
+      result.push({ range: `$${lo.toFixed(0)}-${hi.toFixed(0)}`, count });
+    }
+    return result;
+  }, [inventory]);
 
   // Correlation heatmap data
-  const corrMatrix = computeCorrelation(inventory, numericCols);
+  const corrMatrix = useMemo(() => computeCorrelation(inventory, numericCols), [inventory]);
 
   // Vendor box-plot approximation data
-  const vendorGroups = inventory.reduce<Record<string, number[]>>((acc, r) => {
-    (acc[r.vendor_name] = acc[r.vendor_name] || []).push(r.inventory_value);
-    return acc;
-  }, {});
-  const vendorBoxData = Object.entries(vendorGroups).map(([vendor, values]) => {
-    values.sort((a, b) => a - b);
-    return {
-      vendor: vendor.split(' ').pop() || vendor,
-      min: values[0],
-      q1: values[Math.floor(values.length * 0.25)],
-      median: values[Math.floor(values.length * 0.5)],
-      q3: values[Math.floor(values.length * 0.75)],
-      max: values[values.length - 1],
-      avg: Math.round(values.reduce((a, b) => a + b, 0) / values.length),
-    };
-  });
+  const vendorBoxData = useMemo(() => {
+    if (inventory.length === 0) return [];
+    const vendorGroups = inventory.reduce<Record<string, number[]>>((acc, r) => {
+      (acc[r.vendor_name] = acc[r.vendor_name] || []).push(r.inventory_value);
+      return acc;
+    }, {});
+    return Object.entries(vendorGroups).map(([vendor, values]) => {
+      const sorted = [...values].sort((a, b) => a - b);
+      return {
+        vendor: vendor.split(' ').pop() || vendor,
+        min: sorted[0],
+        q1: sorted[Math.floor(sorted.length * 0.25)],
+        median: sorted[Math.floor(sorted.length * 0.5)],
+        q3: sorted[Math.floor(sorted.length * 0.75)],
+        max: sorted[sorted.length - 1],
+        avg: Math.round(sorted.reduce((a, b) => a + b, 0) / sorted.length),
+      };
+    });
+  }, [inventory]);
+
+  if (loading) return <LoadingSpinner text={t('stats.loading')} />;
+  if (error) return (
+    <div className="text-red-500 p-4 text-center">
+      <p>{error}</p>
+      <button onClick={loadData} className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+        Retry
+      </button>
+    </div>
+  );
+  if (!batchId) return <div className="text-ci-gray text-center py-12">{t('stats.noData')}</div>;
 
   const tabs = [
     { key: 'interactive' as const, label: t('stats.tabInteractive') },

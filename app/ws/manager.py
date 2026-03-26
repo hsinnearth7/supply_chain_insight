@@ -17,9 +17,8 @@ class ConnectionManager:
         self._global: list[WebSocket] = []
         self._batch: dict[str, list[WebSocket]] = {}
 
-    async def connect(self, ws: WebSocket, batch_id: Optional[str] = None):
-        """Accept and register a WebSocket connection."""
-        await ws.accept()
+    def add(self, ws: WebSocket, batch_id: Optional[str] = None):
+        """Register an already-accepted WebSocket connection."""
         if batch_id:
             self._batch.setdefault(batch_id, []).append(ws)
             logger.info("WS connected to batch %s (total=%d)", batch_id, len(self._batch[batch_id]))

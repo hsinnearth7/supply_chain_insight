@@ -82,6 +82,10 @@ class SupplyChainAnalyzer:
         gs = GridSpec(2, 3, figure=fig, hspace=0.30, wspace=0.30,
                       left=0.06, right=0.96, top=0.92, bottom=0.06)
         valid = df[(df["EOQ"] > 0) & (df["EOQ"] < df["EOQ"].quantile(0.99))].copy()
+        if valid.empty:
+            plt.close()
+            logger.warning("Chart 9: No valid EOQ data, skipping")
+            return
         cat_order = valid.groupby("Category")["EOQ"].median().sort_values(ascending=False).index
 
         ax1 = fig.add_subplot(gs[0, 0])
@@ -310,7 +314,7 @@ class SupplyChainAnalyzer:
                      fontsize=18, fontweight="bold", y=0.98, color=CHART_TEXT_COLOR)
         gs = GridSpec(2, 3, figure=fig, hspace=0.30, wspace=0.30,
                       left=0.06, right=0.96, top=0.92, bottom=0.06)
-        np.random.seed(42)
+        rng = np.random.RandomState(42)
         categories = df.groupby("Category")["Inventory_Value"].sum().sort_values(ascending=False).index[:6]
         mc_results = {}
 
@@ -319,12 +323,16 @@ class SupplyChainAnalyzer:
             cat_df = df[(df["Category"] == cat) & (df["Daily_Demand_Est"] > 0)]
             demand_mean = cat_df["Daily_Demand_Est"].mean()
             demand_std = cat_df["Daily_Demand_Est"].std()
+            if np.isnan(demand_std) or demand_std == 0:
+                demand_std = max(demand_mean * 0.1, 1.0)  # Fallback: 10% CV
             lt_mean = cat_df["Lead_Time_Days"].mean()
             lt_std = cat_df["Lead_Time_Days"].std()
+            if np.isnan(lt_std) or lt_std == 0:
+                lt_std = max(lt_mean * 0.1, 1.0)
             avg_stock = cat_df["Current_Stock"].mean()
             avg_safety = cat_df["Safety_Stock_Target"].mean()
-            sim_lt = np.random.normal(lt_mean, max(lt_std, 1), MONTE_CARLO_SIMS).clip(1, 60).astype(int)
-            sim_demand = np.random.normal(demand_mean, max(demand_std, 1), MONTE_CARLO_SIMS).clip(0)
+            sim_lt = rng.normal(lt_mean, max(lt_std, 1), MONTE_CARLO_SIMS).clip(1, 60).astype(int)
+            sim_demand = rng.normal(demand_mean, max(demand_std, 1), MONTE_CARLO_SIMS).clip(0)
             sim_total = sim_lt * sim_demand
             stockout_mask = sim_total > avg_stock
             stockout_pct = stockout_mask.mean() * 100
@@ -438,7 +446,8 @@ class SupplyChainAnalyzer:
             sku_count=("Product_ID", "count"),
             oos_rate=("Stock_Status", lambda x: (x == "Out of Stock").mean() * 100),
         )
-        cat_stats["CV"] = cat_stats["demand_std"] / cat_stats["demand_mean"]
+        cat_stats["CV"] = np.where(cat_stats["demand_mean"] > 0,
+                                    cat_stats["demand_std"] / cat_stats["demand_mean"], 0.0)
         cat_stats = cat_stats.sort_values("CV", ascending=False)
 
         ax1 = fig.add_subplot(gs[0, 0])
@@ -525,6 +534,8 @@ class SupplyChainAnalyzer:
                         s=8, alpha=0.3, color=color, label=status, edgecolors="none")
         x_line = np.linspace(1, sample["Daily_Demand_Est"].max(), 100)
         avg_lt = df["Lead_Time_Days"].mean()
+        # Standard safety stock: Z * sigma_demand * sqrt(LT)
+        # Using demand * 0.5 as proxy for sigma_demand (CV ~= 0.5 assumption)
         theoretical_ss = 1.96 * np.sqrt(avg_lt) * x_line * 0.5
         ax6.plot(x_line, theoretical_ss, "r--", lw=1.5, label=f"Theoretical SS (Z=1.96, LT={avg_lt:.0f}d)")
         ax6.set_xlabel("Daily Demand")

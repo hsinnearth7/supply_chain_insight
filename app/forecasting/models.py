@@ -27,7 +27,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from app.logging import get_logger
+from app.log_config import get_logger
 from app.settings import get_model_config
 
 logger = get_logger(__name__)
@@ -85,22 +85,25 @@ class NaiveMovingAverage(ForecastModel):
     def __init__(self, window: int = 30):
         self.window = window
         self._last_values: dict[str, np.ndarray] = {}
+        self._last_dates: dict[str, pd.Timestamp] = {}
 
     @property
     def name(self) -> str:
         return f"naive_ma{self.window}"
 
     def fit(self, Y_train: pd.DataFrame, X_train: pd.DataFrame | None = None) -> "NaiveMovingAverage":
-        for uid, grp in Y_train.groupby("unique_id"):
-            values = grp.sort_values("ds")["y"].values
+        for uid, group in Y_train.groupby("unique_id"):
+            group = group.sort_values("ds")
+            values = group["y"].values
             self._last_values[str(uid)] = values[-self.window :]
+            self._last_dates[str(uid)] = group["ds"].max()
         return self
 
     def predict(self, h: int, X_future: pd.DataFrame | None = None) -> pd.DataFrame:
         records = []
         for uid, values in self._last_values.items():
             ma = float(np.mean(values))
-            last_ds = pd.Timestamp("2024-01-01")  # will be overridden by caller
+            last_ds = self._last_dates.get(uid, pd.Timestamp("2024-01-01"))
             for step in range(h):
                 records.append({"unique_id": uid, "ds": last_ds + pd.Timedelta(days=step + 1), "y_hat": max(0, ma)})
         return pd.DataFrame(records)
@@ -219,6 +222,23 @@ FEATURE_COLS = [
 ]
 
 
+def _compute_features(history: list[float], ds: pd.Timestamp) -> list[float]:
+    """Compute lag features for a single prediction step.
+
+    Shared by XGBoostForecaster and LightGBMForecaster.
+    """
+    n = len(history)
+    lag_1 = history[-1] if n >= 1 else 0
+    lag_7 = history[-7] if n >= 7 else lag_1
+    lag_14 = history[-14] if n >= 14 else lag_1
+    lag_28 = history[-28] if n >= 28 else lag_1
+    # Match training's shift(1).rolling(W) — exclude current value (history[-1])
+    rm7 = float(np.mean(history[-8:-1])) if n >= 8 else (float(np.mean(history[:-1])) if n >= 2 else 0.0)
+    rs7 = float(np.std(history[-8:-1], ddof=1)) if n >= 8 else 0.0
+    rm28 = float(np.mean(history[-29:-1])) if n >= 29 else (float(np.mean(history[:-1])) if n >= 2 else 0.0)
+    return [lag_1, lag_7, lag_14, lag_28, rm7, rs7, rm28, ds.dayofweek, ds.month, ds.dayofyear]
+
+
 class XGBoostForecaster(ForecastModel):
     """XGBoost time series forecaster with lag features.
 
@@ -253,7 +273,7 @@ class XGBoostForecaster(ForecastModel):
             n_jobs=1,
         )
         self._model.fit(X, y)
-        self._train_data = Y_train.copy()
+        self._train_data = Y_train
         logger.info("model_fitted", model="xgboost", n_samples=len(X))
         return self
 
@@ -269,25 +289,13 @@ class XGBoostForecaster(ForecastModel):
 
             for step in range(h):
                 ds = last_ds + pd.Timedelta(days=step + 1)
-                features = self._compute_features(history, ds)
+                features = _compute_features(history, ds)
                 yhat = float(self._model.predict(np.array([features]))[0])
                 yhat = max(0, yhat)
                 records.append({"unique_id": uid, "ds": ds, "y_hat": yhat})
                 history.append(yhat)
 
         return pd.DataFrame(records)
-
-    def _compute_features(self, history: list[float], ds: pd.Timestamp) -> list[float]:
-        """Compute lag features for a single prediction step."""
-        n = len(history)
-        lag_1 = history[-1] if n >= 1 else 0
-        lag_7 = history[-7] if n >= 7 else lag_1
-        lag_14 = history[-14] if n >= 14 else lag_1
-        lag_28 = history[-28] if n >= 28 else lag_1
-        rm7 = float(np.mean(history[-7:])) if n >= 7 else float(np.mean(history))
-        rs7 = float(np.std(history[-7:])) if n >= 7 else 0
-        rm28 = float(np.mean(history[-28:])) if n >= 28 else float(np.mean(history))
-        return [lag_1, lag_7, lag_14, lag_28, rm7, rs7, rm28, ds.dayofweek, ds.month, ds.dayofyear]
 
     @property
     def feature_importance(self) -> dict[str, float] | None:
@@ -337,7 +345,7 @@ class LightGBMForecaster(ForecastModel):
             verbose=-1,
         )
         self._model.fit(X, y)
-        self._train_data = Y_train.copy()
+        self._train_data = Y_train
         logger.info("model_fitted", model="lightgbm", n_samples=len(X))
         return self
 
@@ -353,7 +361,7 @@ class LightGBMForecaster(ForecastModel):
 
             for step in range(h):
                 ds = last_ds + pd.Timedelta(days=step + 1)
-                features = XGBoostForecaster._compute_features(None, history, ds)
+                features = _compute_features(history, ds)
                 yhat = float(self._model.predict(np.array([features]))[0])
                 yhat = max(0, yhat)
                 records.append({"unique_id": uid, "ds": ds, "y_hat": yhat})
@@ -392,7 +400,7 @@ class ChronosForecaster(ForecastModel):
 
     def fit(self, Y_train: pd.DataFrame, X_train: pd.DataFrame | None = None) -> "ChronosForecaster":
         """Chronos is zero-shot — fit just stores data for predict."""
-        self._train_data = Y_train.copy()
+        self._train_data = Y_train
         try:
             import torch
             from chronos import ChronosPipeline
@@ -413,6 +421,9 @@ class ChronosForecaster(ForecastModel):
             return pd.DataFrame(columns=["unique_id", "ds", "y_hat"])
 
         records = []
+        if h > self.prediction_length:
+            import warnings
+            warnings.warn(f"Requested horizon {h} exceeds prediction_length {self.prediction_length}, truncating to {self.prediction_length}")
         h = min(h, self.prediction_length)
 
         for uid, grp in self._train_data.groupby("unique_id"):
@@ -577,7 +588,7 @@ class ProphetForecaster(ForecastModel):
         return "prophet"
 
     def fit(self, Y_train: pd.DataFrame, X_train: pd.DataFrame | None = None) -> "ProphetForecaster":
-        self._train_data = Y_train.copy()
+        self._train_data = Y_train
         try:
             from prophet import Prophet  # type: ignore[import-untyped]
 
@@ -682,7 +693,7 @@ class LSTMForecaster(ForecastModel):
         return "lstm"
 
     def fit(self, Y_train: pd.DataFrame, X_train: pd.DataFrame | None = None) -> "LSTMForecaster":
-        self._train_data = Y_train.copy()
+        self._train_data = Y_train
         try:
             import torch
             import torch.nn as nn
@@ -825,7 +836,7 @@ class NBEATSForecaster(ForecastModel):
         return "nbeats"
 
     def fit(self, Y_train: pd.DataFrame, X_train: pd.DataFrame | None = None) -> "NBEATSForecaster":
-        self._train_data = Y_train.copy()
+        self._train_data = Y_train
         try:
             from neuralforecast import NeuralForecast  # type: ignore[import-untyped]
             from neuralforecast.models import NBEATS  # type: ignore[import-untyped]
@@ -907,9 +918,11 @@ class NBEATSForecaster(ForecastModel):
             for step, ds in enumerate(future_dates):
                 t_val = float(n + step)
                 yhat = float(np.polyval(poly_coeffs, t_val))
-                for a_k, b_k, _ in info["harmonics"]:
-                    yhat += a_k * np.cos(2 * np.pi * (step + 1) / period)
-                    yhat += b_k * np.sin(2 * np.pi * (step + 1) / period)
+                # Use harmonic index k to match fit-time Fourier computation
+                for k_idx, (a_k, b_k, _) in enumerate(info["harmonics"]):
+                    k = k_idx + 1
+                    yhat += a_k * np.cos(2 * np.pi * k * (n + step) / period)
+                    yhat += b_k * np.sin(2 * np.pi * k * (n + step) / period)
                 records.append({"unique_id": uid, "ds": ds, "y_hat": max(0, float(yhat))})
 
         return pd.DataFrame(records)
@@ -946,7 +959,7 @@ class TFTForecaster(ForecastModel):
         return "tft"
 
     def fit(self, Y_train: pd.DataFrame, X_train: pd.DataFrame | None = None) -> "TFTForecaster":
-        self._train_data = Y_train.copy()
+        self._train_data = Y_train
         try:
             from neuralforecast import NeuralForecast  # type: ignore[import-untyped]
             from neuralforecast.models import TFT  # type: ignore[import-untyped]
@@ -979,10 +992,19 @@ class TFTForecaster(ForecastModel):
                 t = np.arange(n, dtype=np.float64)
                 dow = np.array([d.dayofweek for d in grp["ds"]], dtype=np.float64)
                 month = np.array([d.month for d in grp["ds"]], dtype=np.float64)
-                lag1 = np.roll(y, 1)
-                lag1[0] = y[0]
-                lag7 = np.roll(y, 7)
-                lag7[:7] = y[0]
+                # Proper lag computation: use NaN for unavailable values instead of np.roll
+                lag1 = np.empty_like(y, dtype=np.float64)
+                lag1[0] = np.nan
+                lag1[1:] = y[:-1]
+
+                lag7 = np.empty_like(y, dtype=np.float64)
+                lag7[:7] = np.nan
+                lag7[7:] = y[:-7]
+
+                # Fill NaNs with series mean to avoid leaking future information
+                y_mean = float(np.nanmean(y))
+                lag1 = np.nan_to_num(lag1, nan=y_mean)
+                lag7 = np.nan_to_num(lag7, nan=y_mean)
 
                 X_feat = np.column_stack([t, dow, month, lag1, lag7])
                 reg = Ridge(alpha=1.0)

@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -145,20 +145,56 @@ async def _run_pipeline_job(
 # ---------- Rate limiter ----------
 
 _rate_limit_store: dict[str, list[float]] = defaultdict(list)
+MAX_STORE_SIZE = 10_000  # Max tracked IPs before eviction
+
+
+def _evict_rate_limit_store() -> None:
+    """Remove stale entries when the store grows too large."""
+    now = time.time()
+    window_start = now - 60.0
+    # Remove timestamps outside the current window and drop empty keys
+    keys_to_delete = []
+    for ip, timestamps in _rate_limit_store.items():
+        _rate_limit_store[ip] = [t for t in timestamps if t > window_start]
+        if not _rate_limit_store[ip]:
+            keys_to_delete.append(ip)
+    for ip in keys_to_delete:
+        del _rate_limit_store[ip]
 
 
 def _check_rate_limit(request: Request):
     """Simple in-memory rate limiter per client IP."""
+    if len(_rate_limit_store) >= MAX_STORE_SIZE:
+        _evict_rate_limit_store()
+
+    # NOTE: In production behind a reverse proxy, configure the proxy to set
+    # X-Real-IP or use uvicorn's --proxy-headers flag for correct client IPs.
+    # Do not trust X-Forwarded-For unconditionally — it is trivially spoofable.
     client_ip = request.client.host if request.client else "unknown"
     now = time.time()
     window_start = now - 60.0
-    # Clean old entries
+    # Clean old entries for this IP
     _rate_limit_store[client_ip] = [
         t for t in _rate_limit_store[client_ip] if t > window_start
     ]
     if len(_rate_limit_store[client_ip]) >= RATE_LIMIT_PER_MINUTE:
         raise HTTPException(429, "Rate limit exceeded. Try again later.")
     _rate_limit_store[client_ip].append(now)
+
+
+# ---------- Fire-and-forget task logging ----------
+
+_running_tasks: set = set()
+
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    """Callback attached to fire-and-forget tasks to log unhandled exceptions."""
+    _running_tasks.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("Pipeline task failed: %s", exc, exc_info=exc)
 
 
 # ---------- Progress bridge: sync pipeline thread -> async WS ----------
@@ -245,9 +281,11 @@ async def ingest_csv(request: Request, file: UploadFile = File(...)):
     progress_cb = _make_ws_progress_callback(batch_id, loop)
     orchestrator = PipelineOrchestrator(on_progress=progress_cb)
 
-    asyncio.create_task(
+    task = asyncio.create_task(
         asyncio.to_thread(orchestrator.run, str(raw_path), batch_id)
     )
+    _running_tasks.add(task)
+    task.add_done_callback(_log_task_exception)
 
     return {
         "batch_id": batch_id,
@@ -285,9 +323,11 @@ async def ingest_existing(request: Request):
     progress_cb = _make_ws_progress_callback(batch_id, loop)
     staged_path = WATCHDOG_STAGING_DIR / _safe_filename(raw_path.name)
     await asyncio.to_thread(staged_path.write_bytes, contents)
-    asyncio.create_task(
+    task = asyncio.create_task(
         _run_pipeline_job(staged_path, batch_id, progress_cb, cleanup_path=staged_path)
     )
+    _running_tasks.add(task)
+    task.add_done_callback(_log_task_exception)
     return {"batch_id": batch_id, "status": "queued", "message": "Pipeline started with existing file."}
 
 
@@ -322,9 +362,11 @@ async def trigger_pipeline_from_path(file_path: str):
 
     loop = asyncio.get_running_loop()
     progress_cb = _make_ws_progress_callback(batch_id, loop)
-    asyncio.create_task(
+    task = asyncio.create_task(
         _run_pipeline_job(staged_path, batch_id, progress_cb, cleanup_path=staged_path)
     )
+    _running_tasks.add(task)
+    task.add_done_callback(_log_task_exception)
     return batch_id
 
 
@@ -381,11 +423,16 @@ def get_analysis(batch_id: str, analysis_type: str, db: Session = Depends(get_db
 # ---------- Inventory data for interactive charts ----------
 
 @router.get("/runs/{batch_id}/data")
-def get_inventory_data(batch_id: str, db: Session = Depends(get_db)):
+def get_inventory_data(
+    batch_id: str,
+    offset: int = 0,
+    limit: int = Query(default=1000, le=10000),
+    db: Session = Depends(get_db),
+):
     """Get inventory snapshot rows for interactive charting."""
     snapshots = db.query(InventorySnapshot).filter(
         InventorySnapshot.batch_id == batch_id
-    ).all()
+    ).offset(offset).limit(limit).all()
     if not snapshots:
         raise HTTPException(404, "No data found for this batch")
 
@@ -511,20 +558,24 @@ def get_latest_kpis(db: Session = Depends(get_db)):
 @router.get("/history/kpis")
 def get_kpi_history(limit: int = 20, db: Session = Depends(get_db)):
     """Get KPI history across multiple pipeline runs for trend analysis."""
-    runs = db.query(PipelineRun).filter(
-        PipelineRun.status == "completed"
-    ).order_by(PipelineRun.completed_at.desc()).limit(limit).all()
-
-    history = []
-    for run in runs:
-        result = db.query(AnalysisResult).filter(
-            AnalysisResult.batch_id == run.batch_id,
+    limit = max(1, min(limit, 100))
+    rows = (
+        db.query(PipelineRun, AnalysisResult)
+        .join(AnalysisResult, PipelineRun.batch_id == AnalysisResult.batch_id)
+        .filter(
+            PipelineRun.status == "completed",
             AnalysisResult.analysis_type == "stats",
-        ).first()
-        if result:
-            history.append({
-                "batch_id": run.batch_id,
-                "completed_at": run.completed_at.isoformat() if run.completed_at else None,
-                "kpis": result.result_json,
-            })
-    return history
+        )
+        .order_by(PipelineRun.completed_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        {
+            "batch_id": run.batch_id,
+            "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+            "kpis": result.result_json,
+        }
+        for run, result in rows
+    ]

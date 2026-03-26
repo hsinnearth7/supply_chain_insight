@@ -140,8 +140,9 @@ class TestConformalPredictor:
 
     def test_intervals_contain_point(self):
         cp = ConformalPredictor(target_coverage=0.90)
-        y_true = np.random.normal(100, 10, 100)
-        y_pred = y_true + np.random.normal(0, 2, 100)
+        rng = np.random.default_rng(42)
+        y_true = rng.normal(100, 10, 100)
+        y_pred = y_true + rng.normal(0, 2, 100)
         cp.calibrate(y_true, y_pred)
         y_lo, y_hi = cp.predict_intervals(y_pred)
         assert (y_lo <= y_pred).all()

@@ -49,6 +49,7 @@ export function usePipelineProgress(batchId: string | null) {
   const [pipelineStatus, setPipelineStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle');
 
   const handleMessage = useCallback((msg: WSMessage) => {
+    if (!msg.payload) return;
     const { stage, status, progress_pct } = msg.payload;
 
     if (msg.type === 'pipeline:failed') {
@@ -80,10 +81,13 @@ export function usePipelineProgress(batchId: string | null) {
     if (stage === 'sop' && status === 'completed') {
       setPipelineStatus('completed');
       setOverallPct(100);
-    } else if (status === 'running' && pipelineStatus !== 'running') {
-      setPipelineStatus('running');
+    } else if (status === 'running') {
+      setPipelineStatus((prev) => {
+        if (prev !== 'running') return 'running';
+        return prev;
+      });
     }
-  }, [pipelineStatus]);
+  }, []);
 
   const { connected } = useWebSocket({
     url: batchId ? `/ws/pipeline/${batchId}` : '',
@@ -129,7 +133,7 @@ export function usePipelineProgress(batchId: string | null) {
   }, [batchId, connected, pipelineStatus]);
 
   const reset = useCallback(() => {
-    setStages(initialStages);
+    setStages(initialStages.map(s => ({ ...s })));
     setOverallPct(0);
     setPipelineStatus('idle');
   }, []);

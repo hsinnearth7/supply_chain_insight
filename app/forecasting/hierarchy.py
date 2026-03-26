@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from app.forecasting.data_generator import HierarchySpec, build_hierarchy_matrix
-from app.logging import get_logger
+from app.log_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -27,14 +27,12 @@ logger = get_logger(__name__)
 def aggregate_to_hierarchy(
     Y_df: pd.DataFrame,
     S_df: pd.DataFrame,
-    spec: HierarchySpec | None = None,
 ) -> tuple[pd.DataFrame, np.ndarray, dict[str, list[str]]]:
     """Aggregate bottom-level time series to all hierarchy levels.
 
     Args:
         Y_df: Bottom-level demand (unique_id, ds, y).
         S_df: Static attributes with hierarchy columns.
-        spec: Hierarchy specification.
 
     Returns:
         Y_agg: Aggregated time series for all levels.
@@ -172,11 +170,16 @@ class HierarchicalForecaster:
         S: np.ndarray,
         tags: dict[str, list[str]],
     ) -> pd.DataFrame:
-        """Manual reconciliation implementation.
+        """Manual reconciliation implementation (vectorized).
+
+        Instead of looping per date, pivot to matrix, multiply, unpivot.
 
         BottomUp: Y_reconciled = S × Y_hat_bottom
         MinTrace(OLS): Y_reconciled = S × (S'S)^{-1} × S' × Y_hat_all
         """
+        # INVARIANT: tags dict must preserve insertion order matching the summation
+        # matrix S rows: [national, warehouse, category, sku]. Python 3.7+ dicts
+        # maintain insertion order. Do NOT reorder tags keys.
         all_ids = []
         for level_ids in tags.values():
             all_ids.extend(level_ids)
@@ -184,51 +187,40 @@ class HierarchicalForecaster:
         bottom_ids = tags["sku"]
         n_bottom = len(bottom_ids)
 
-        dates = sorted(Y_hat["ds"].unique())
-        reconciled_records = []
+        # Pivot to matrix: rows=dates, columns=unique_ids
+        pivot_df = Y_hat.pivot(index="ds", columns="unique_id", values="y_hat")
 
-        for ds in dates:
-            day_forecasts = Y_hat[Y_hat["ds"] == ds]
+        if self.method == "bottom_up":
+            # Reorder columns to match bottom-level order, fill missing with 0
+            bottom_pivot = pivot_df.reindex(columns=bottom_ids, fill_value=0)
+            # Matrix multiply: (n_dates, n_bottom) @ S.T -> (n_dates, n_all)
+            # S shape is (n_all, n_bottom), so bottom_values @ S.T gives (n_dates, n_all)
+            reconciled_matrix = bottom_pivot.values @ S.T
+        else:  # MinTrace OLS
+            # NOTE: This implements OLS reconciliation (W=I), equivalent to projection onto col(S).
+            # For true MinTrace, W should be the forecast error covariance matrix.
+            # Reorder columns to match all_ids order, fill missing with 0
+            all_pivot = pivot_df.reindex(columns=all_ids, fill_value=0)
+            # MinTrace: P = S(S'S)^{-1}S'
+            StS = S.T @ S
+            try:
+                StS_inv = np.linalg.inv(StS)
+                P = S @ StS_inv @ S.T
+                # (n_dates, n_all) @ P.T -> (n_dates, n_all)
+                reconciled_matrix = all_pivot.values @ P.T
+            except np.linalg.LinAlgError:
+                # Fallback to bottom-up if singular
+                bottom_pivot = pivot_df.reindex(columns=bottom_ids, fill_value=0)
+                reconciled_matrix = bottom_pivot.values @ S.T
 
-            if self.method == "bottom_up":
-                # Extract bottom-level forecasts
-                bottom_hat = np.zeros(n_bottom)
-                for i, uid in enumerate(bottom_ids):
-                    match = day_forecasts[day_forecasts["unique_id"] == uid]
-                    if len(match) > 0:
-                        bottom_hat[i] = match["y_hat"].iloc[0]
+        # Ensure non-negative
+        reconciled_matrix = np.maximum(reconciled_matrix, 0)
 
-                # Reconcile: multiply S × bottom forecasts
-                reconciled = S @ bottom_hat
+        # Build result DataFrame from matrix
+        dates = pivot_df.index
+        result = pd.DataFrame(reconciled_matrix, index=dates, columns=all_ids)
+        result = result.reset_index().melt(id_vars="ds", var_name="unique_id", value_name="y_hat_reconciled")
 
-            else:  # MinTrace OLS
-                # Extract all forecasts
-                all_hat = np.zeros(len(all_ids))
-                for i, uid in enumerate(all_ids):
-                    match = day_forecasts[day_forecasts["unique_id"] == uid]
-                    if len(match) > 0:
-                        all_hat[i] = match["y_hat"].iloc[0]
-
-                # MinTrace: P = S(S'S)^{-1}S'
-                StS = S.T @ S
-                try:
-                    StS_inv = np.linalg.inv(StS)
-                    P = S @ StS_inv @ S.T
-                    reconciled = P @ all_hat
-                except np.linalg.LinAlgError:
-                    # Fallback to bottom-up if singular
-                    bottom_hat = all_hat[-n_bottom:]
-                    reconciled = S @ bottom_hat
-
-            # Ensure non-negative
-            reconciled = np.maximum(reconciled, 0)
-
-            for i, uid in enumerate(all_ids):
-                reconciled_records.append(
-                    {"unique_id": uid, "ds": ds, "y_hat_reconciled": float(reconciled[i])}
-                )
-
-        result = pd.DataFrame(reconciled_records)
         logger.info("manual_reconciliation_complete", method=self.method, n_records=len(result))
         return result
 

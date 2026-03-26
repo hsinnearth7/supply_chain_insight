@@ -18,7 +18,7 @@ ChainInsight — End-to-end demand planning engine combining:
 
 ```bash
 docker compose up --build
-# Frontend: http://localhost:3000
+# Frontend: http://localhost:5173
 # Backend API: http://localhost:8000/docs
 ```
 
@@ -104,7 +104,7 @@ MLOps      Live Mode
 | Module | Path | Description |
 |--------|------|-------------|
 | **Settings** | `app/settings.py` | YAML config loader with `@lru_cache`, section accessors |
-| **Logging** | `app/logging.py` | structlog setup (`setup_logging()`, `get_logger()`) |
+| **Logging** | `app/log_config.py` | structlog setup (`setup_logging()`, `get_logger()`) |
 | **Seed** | `app/seed.py` | Global seed management (random, numpy, torch, CUDA) |
 | **Data Generator** | `app/forecasting/data_generator.py` | Nixtla-format synthetic data, 5 M5 properties, 4-layer hierarchy |
 | **Data Contracts** | `app/forecasting/contracts.py` | Pandera schemas for Y_df, S_df, X_future, X_past, forecasts |

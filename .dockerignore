@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+!.env.example
+__pycache__
+*.pyc
+tests/
+docs/
+*.db
+node_modules/
+frontend/node_modules/
+tmp*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+mlruns/

@@ -88,10 +88,20 @@ class SignalProcessor:
         }
         base_weight = source_weights.get(signal.source, 0.3)
 
+        # Recency decay: extract day number from timestamp (e.g. "day_3")
+        try:
+            day_num = int(signal.timestamp.split("_")[-1])
+        except (ValueError, IndexError):
+            day_num = 0
+        # Exponential decay: newer signals (higher day_num) get more weight
+        max_day = horizon_days - 1 if horizon_days > 1 else 1
+        days_ago = max(0, max_day - day_num)
+        decay = 0.5 ** (days_ago / max(1, self.decay_half_life))
+
         # Shorter horizon = signals matter more
         horizon_factor = max(0.1, 1.0 - (horizon_days / (self.horizon * 2)))
 
-        return base_weight * signal.confidence * horizon_factor
+        return base_weight * signal.confidence * horizon_factor * decay
 
     def compute_sensing_adjustment(
         self,
@@ -151,18 +161,21 @@ class SignalProcessor:
         if not signals:
             return []
 
-        # Group by product
-        by_product: dict[str, list[float]] = {}
+        # Group signals (full objects) by product
+        by_product: dict[str, list[DemandSignal]] = {}
         for s in signals:
-            by_product.setdefault(s.product_id, []).append(s.signal_value)
+            by_product.setdefault(s.product_id, []).append(s)
 
         spikes = []
-        for pid, values in by_product.items():
+        for pid, product_signals in by_product.items():
+            values = [s.signal_value for s in product_signals]
             arr = np.array(values)
+            if len(arr) < 2:
+                continue  # Need at least 2 observations for sample std
             mean = float(np.mean(arr))
-            std = float(np.std(arr)) if len(arr) > 1 else 1.0
+            std = float(np.std(arr, ddof=1))
 
-            for i, v in enumerate(values):
+            for i, (v, sig) in enumerate(zip(values, product_signals)):
                 sigma = (v - mean) / std if std > 0 else 0
                 if sigma > self.spike_threshold:
                     spikes.append(Spike(
@@ -170,7 +183,7 @@ class SignalProcessor:
                         period=f"signal_{i}",
                         magnitude=float(v),
                         sigma=float(sigma),
-                        source=signals[i].source if i < len(signals) else "unknown",
+                        source=sig.source,
                     ))
 
         return spikes

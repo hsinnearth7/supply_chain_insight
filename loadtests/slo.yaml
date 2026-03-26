@@ -60,7 +60,7 @@ slos:
     indicator:
       type: quality
       metric: |
-        count(chaininsight_forecast_mape < 15) / count(chaininsight_forecast_mape)
+        count(chaininsight_forecast_mape < bool 15) / count(chaininsight_forecast_mape)
       threshold: 0.15  # 15% MAPE
     alert:
       degradation_trigger: 3  # Alert after 3 consecutive breaches
@@ -96,7 +96,7 @@ slos:
     indicator:
       type: freshness
       metric: |
-        time() - max(chaininsight_drift_detected_total)
+        time() - chaininsight_drift_last_check_timestamp
       threshold: 21600  # 6 hours in seconds
 
   # --- Error Budget ---

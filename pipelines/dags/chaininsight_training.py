@@ -103,10 +103,13 @@ def evaluate(**kwargs):
 
     ti.xcom_push(key="eval_report", value=json.dumps(combined, default=str))
 
+    # NOTE: best_mape is computed dynamically from the evaluation report.
+    # The threshold below (25%) is a placeholder/demo value — adjust based on
+    # your domain requirements and historical model performance.
     best_mape = eval_report.get("best_mape", float("inf"))
     print(f"Evaluation complete — best MAPE: {best_mape:.2f}%")
 
-    # Gate: fail if MAPE exceeds threshold
+    # Gate: fail if MAPE exceeds threshold (placeholder/demo threshold)
     if best_mape > 25.0:
         raise ValueError(f"Best MAPE {best_mape:.2f}% exceeds threshold of 25%")
 

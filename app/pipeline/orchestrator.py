@@ -15,7 +15,6 @@ from app.db.models import (
     InventorySnapshot,
     PipelineRun,
     SessionLocal,
-    init_db,
 )
 from app.pipeline.etl import ETLPipeline
 from app.pipeline.ml_engine import MLAnalyzer
@@ -40,7 +39,8 @@ class PipelineOrchestrator:
             on_progress: Optional callback(stage, status, data) for real-time updates.
         """
         self.on_progress = on_progress or (lambda *a, **kw: None)
-        init_db()
+        self._current_stage: Optional[str] = None
+        # init_db() is already called by main.py at startup; no need to re-init on every run
 
     def run(self, input_path: str, batch_id: Optional[str] = None) -> dict:
         """Execute the full pipeline.
@@ -71,11 +71,11 @@ class PipelineOrchestrator:
         all_results = {"batch_id": batch_id, "stages": {}}
         charts_dir = CHARTS_DIR / batch_id
         charts_dir.mkdir(parents=True, exist_ok=True)
-        current_stage = "etl"
+        self._current_stage = "etl"
 
         try:
             # Stage 1: ETL
-            current_stage = "etl"
+            self._current_stage = "etl"
             self.on_progress("etl", "running", {})
             etl = ETLPipeline()
             clean_path = CLEAN_DIR / f"{batch_id}_clean.csv"
@@ -87,7 +87,7 @@ class PipelineOrchestrator:
             self.on_progress("etl", "completed", etl_stats)
 
             # Stage 2: Statistical Analysis
-            current_stage = "stats"
+            self._current_stage = "stats"
             self.on_progress("stats", "running", {})
             stats_analyzer = StatisticalAnalyzer(output_dir=str(charts_dir))
             stats_results = stats_analyzer.run_all(df_clean)
@@ -99,7 +99,7 @@ class PipelineOrchestrator:
             self.on_progress("stats", "completed", stats_results)
 
             # Stage 3: Supply Chain Optimization
-            current_stage = "supply_chain"
+            self._current_stage = "supply_chain"
             self.on_progress("supply_chain", "running", {})
             sc_analyzer = SupplyChainAnalyzer(output_dir=str(charts_dir))
             sc_results = sc_analyzer.run_all(df_clean)
@@ -111,7 +111,7 @@ class PipelineOrchestrator:
             self.on_progress("supply_chain", "completed", sc_results)
 
             # Stage 4: ML Analysis
-            current_stage = "ml"
+            self._current_stage = "ml"
             self.on_progress("ml", "running", {})
             ml_analyzer = MLAnalyzer(output_dir=str(charts_dir))
             ml_results = ml_analyzer.run_all(df_clean)
@@ -120,14 +120,15 @@ class PipelineOrchestrator:
             self.on_progress("ml", "completed", ml_results)
 
             # Stage 5: Capacity Planning
-            current_stage = "capacity"
+            self._current_stage = "capacity"
             self.on_progress("capacity", "running", {})
             cap_planner = CapacityPlanner()
+            # Rows are products/SKUs, not days — use fixed planning horizon
+            n_periods = 4  # 4-week planning horizon
+            total_weekly_demand = float(df_clean["Daily_Demand_Est"].sum()) * 7
             cap_demand = pd.DataFrame({
-                "period": [f"W{i+1}" for i in range(len(df_clean) // 7 or 4)],
-                "demand": [
-                    float(df_clean["Daily_Demand_Est"].sum()) / max(1, len(df_clean) // 7)
-                ] * (len(df_clean) // 7 or 4),
+                "period": [f"W{i+1}" for i in range(n_periods)],
+                "demand": [total_weekly_demand] * n_periods,
             })
             cap_report = cap_planner.check_feasibility(cap_demand)
             cap_adjustments = cap_planner.suggest_adjustments(cap_report.bottlenecks)
@@ -152,7 +153,7 @@ class PipelineOrchestrator:
             self.on_progress("capacity", "completed", cap_kpis)
 
             # Stage 6: Demand Sensing
-            current_stage = "sensing"
+            self._current_stage = "sensing"
             self.on_progress("sensing", "running", {})
             sensor = SignalProcessor()
             product_ids = df_clean["Product_ID"].unique().tolist() if "Product_ID" in df_clean.columns else []
@@ -183,7 +184,7 @@ class PipelineOrchestrator:
             self.on_progress("sensing", "completed", sense_kpis)
 
             # Stage 7: S&OP Simulation
-            current_stage = "sop"
+            self._current_stage = "sop"
             self.on_progress("sop", "running", {})
             sop_sim = SOPSimulator()
             daily_cap = sum(
@@ -224,14 +225,16 @@ class PipelineOrchestrator:
             logger.info("Pipeline completed — batch_id=%s", batch_id)
 
         except Exception as e:
+            db.rollback()
             run_record.status = PipelineStatus.FAILED.value
             run_record.error_message = str(e)
             run_record.completed_at = datetime.now(timezone.utc)
             db.commit()
             all_results["status"] = "failed"
             all_results["error"] = str(e)
-            logger.exception("Pipeline failed — batch_id=%s", batch_id)
-            self.on_progress(current_stage, "failed", {"error": str(e)})
+            failed_stage = self._current_stage or "unknown"
+            logger.exception("Pipeline failed at stage=%s — batch_id=%s", failed_stage, batch_id)
+            self.on_progress(failed_stage, "failed", {"error": str(e)})
         finally:
             db.close()
 
@@ -240,22 +243,23 @@ class PipelineOrchestrator:
     def _save_snapshots(self, db, batch_id: str, df: pd.DataFrame):
         """Save cleaned data as inventory snapshots."""
         now = datetime.now(timezone.utc)
+        records = df.to_dict("records")
         snapshots = []
-        for _, row in df.iterrows():
+        for rec in records:
             snapshots.append(InventorySnapshot(
                 batch_id=batch_id,
                 ingested_at=now,
-                product_id=row.get("Product_ID"),
-                category=row.get("Category"),
-                unit_cost=row.get("Unit_Cost"),
-                current_stock=row.get("Current_Stock"),
-                daily_demand_est=row.get("Daily_Demand_Est"),
-                safety_stock_target=row.get("Safety_Stock_Target"),
-                vendor_name=row.get("Vendor_Name"),
-                lead_time_days=row.get("Lead_Time_Days"),
-                reorder_point=row.get("Reorder_Point"),
-                stock_status=row.get("Stock_Status"),
-                inventory_value=row.get("Inventory_Value"),
+                product_id=rec.get("Product_ID"),
+                category=rec.get("Category"),
+                unit_cost=rec.get("Unit_Cost"),
+                current_stock=rec.get("Current_Stock"),
+                daily_demand_est=rec.get("Daily_Demand_Est"),
+                safety_stock_target=rec.get("Safety_Stock_Target"),
+                vendor_name=rec.get("Vendor_Name"),
+                lead_time_days=rec.get("Lead_Time_Days"),
+                reorder_point=rec.get("Reorder_Point"),
+                stock_status=rec.get("Stock_Status"),
+                inventory_value=rec.get("Inventory_Value"),
             ))
         db.bulk_save_objects(snapshots)
         db.commit()
@@ -280,6 +284,8 @@ class PipelineOrchestrator:
             return {k: self._to_serializable(v) for k, v in obj.items()}
         elif isinstance(obj, list):
             return [self._to_serializable(v) for v in obj]
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
         elif isinstance(obj, (np.integer,)):
             return int(obj)
         elif isinstance(obj, (np.floating,)):

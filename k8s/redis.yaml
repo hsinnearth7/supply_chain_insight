@@ -21,6 +21,14 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
+          command: ["redis-server"]
+          args: ["--requirepass", "$(REDIS_PASSWORD)", "--appendonly", "yes"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chaininsight-secret
+                  key: REDIS_PASSWORD
           ports:
             - containerPort: 6379
               protocol: TCP
@@ -31,18 +39,22 @@ spec:
             limits:
               memory: "128Mi"
               cpu: "100m"
+          # NOTE: For production, replace emptyDir with a PersistentVolumeClaim (PVC)
+          # to ensure data durability across pod restarts.
           livenessProbe:
             exec:
               command:
-                - redis-cli
-                - ping
+                - /bin/sh
+                - -c
+                - redis-cli -a $REDIS_PASSWORD ping
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
             exec:
               command:
-                - redis-cli
-                - ping
+                - /bin/sh
+                - -c
+                - redis-cli -a $REDIS_PASSWORD ping
             initialDelaySeconds: 5
             periodSeconds: 5
 ---

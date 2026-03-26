@@ -25,7 +25,11 @@ spec:
     spec:
       containers:
         - name: backend
-          image: chaininsight/backend:latest
+          image: chaininsight/backend:latest  # TODO: Use semantic version tag, not :latest
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
           ports:
             - containerPort: 8000
               protocol: TCP

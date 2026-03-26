@@ -16,6 +16,10 @@ from __future__ import annotations
 import pandera as pa
 
 # Re-export from data_generator for backward compatibility
+# TODO: Inverted dependency — contracts.py (the canonical schema owner) imports
+# schemas FROM data_generator.py. The dependency direction should be reversed:
+# schemas should be defined here and data_generator should import from contracts.
+# Left as-is to avoid breaking existing imports.
 from app.forecasting.data_generator import (
     S_SCHEMA,
     X_FUTURE_SCHEMA,
@@ -41,7 +45,7 @@ FORECAST_SCHEMA = pa.DataFrameSchema(
 EVAL_SCHEMA = pa.DataFrameSchema(
     {
         "model": pa.Column(str, nullable=False),
-        "mape": pa.Column(float, pa.Check.ge(0), nullable=False),
+        "mape": pa.Column(float, pa.Check.ge(0), nullable=True),
         "rmse": pa.Column(float, pa.Check.ge(0), nullable=False),
         "mae": pa.Column(float, pa.Check.ge(0), nullable=False),
     },

@@ -98,7 +98,7 @@
       "expectation_type": "expect_column_distinct_values_to_contain_set",
       "kwargs": {
         "column": "warehouse",
-        "value_set": ["WH-EAST", "WH-WEST", "WH-CENTRAL"]
+        "value_set": ["NYC", "LAX", "CHI"]
       },
       "meta": {
         "notes": "At minimum, the 3 primary warehouses should be present"

@@ -170,6 +170,8 @@ def _generate_holidays(dates: pd.DatetimeIndex) -> np.ndarray:
     holidays = np.zeros(len(dates), dtype=int)
     for i, d in enumerate(dates):
         # Major US retail holidays (simplified)
+        # TODO: Thanksgiving is the 4th Thursday of November, not always Nov 22-28.
+        # Should use `d.weekday() == 3` (Thursday) and count occurrences.
         if (d.month == 11 and d.day >= 22 and d.day <= 28):  # Thanksgiving week
             holidays[i] = 1
         elif (d.month == 12 and d.day >= 15):  # Holiday season
@@ -240,6 +242,9 @@ def generate_demand_data(
         mu = params["base_demand_mean"]
         var = params["base_demand_var"]
         # Negative binomial: n = mu^2 / (var - mu), p = mu / var
+        # NOTE: All current CATEGORY_PARAMS have var < mu (e.g. Electronics 8<15,
+        # Grocery 30<80, etc.), so this NB branch is never reached. The logic is
+        # correct and will activate if a future category has var > mu.
         if var > mu:
             n_param = mu ** 2 / (var - mu)
             p_param = mu / var
@@ -374,6 +379,8 @@ def _apply_substitution_effects(
 
     When a SKU has a promotion, other SKUs in the same subcategory
     see a 3-8% demand reduction (substitution).
+
+    Vectorized via pivot table operations to avoid O(n*m) inner loops.
     """
     # Group SKUs by subcategory
     subcat_groups: dict[str, list[str]] = {}
@@ -381,24 +388,46 @@ def _apply_substitution_effects(
         key = f"{row['warehouse']}_{row['category']}_{row['subcategory']}"
         subcat_groups.setdefault(key, []).append(row["unique_id"])
 
-    # For each subcategory with multiple SKUs, apply substitution
-    promo_by_sku = X_future.pivot(index="ds", columns="unique_id", values="promo_flag")
+    # Pivot demand and promo data for vectorized operations
+    promo_pivot = X_future.pivot(index="ds", columns="unique_id", values="promo_flag")
+    demand_pivot = Y_df.pivot(index="ds", columns="unique_id", values="y")
 
     for group_key, sku_ids in subcat_groups.items():
         if len(sku_ids) < 2:
             continue
-        for uid in sku_ids:
-            if uid not in promo_by_sku.columns:
+
+        # Filter to group members present in both pivots
+        members = [uid for uid in sku_ids if uid in promo_pivot.columns and uid in demand_pivot.columns]
+        if len(members) < 2:
+            continue
+
+        promo_sub = promo_pivot[members]  # (n_dates, n_members)
+        demand_sub = demand_pivot[members].copy()
+
+        # For each SKU, when it has a promo, reduce *other* members' demand
+        for uid in members:
+            promo_mask = promo_sub[uid] == 1  # boolean series over dates
+            if promo_mask.sum() == 0:
                 continue
-            promo_days = promo_by_sku[uid] == 1
-            if promo_days.sum() == 0:
-                continue
-            # Reduce other SKUs' demand on promo days
-            other_uids = [s for s in sku_ids if s != uid]
-            for other_uid in other_uids:
-                mask = (Y_df["unique_id"] == other_uid) & (Y_df["ds"].isin(promo_days[promo_days].index))
-                reduction = rng.uniform(0.92, 0.97, mask.sum())
-                Y_df.loc[mask, "y"] = (Y_df.loc[mask, "y"] * reduction).round(2).clip(lower=0)
+            other_members = [m for m in members if m != uid]
+            n_promo_dates = int(promo_mask.sum())
+            # Generate reduction factors (0.92-0.97) for all affected cells at once
+            reduction = rng.uniform(0.92, 0.97, size=(n_promo_dates, len(other_members)))
+            demand_sub.loc[promo_mask, other_members] = (
+                demand_sub.loc[promo_mask, other_members].values * reduction
+            )
+
+        # Clip and round
+        demand_sub = demand_sub.clip(lower=0).round(2)
+        demand_pivot[members] = demand_sub
+
+    # Unpivot back into Y_df long format
+    melted = demand_pivot.reset_index().melt(id_vars="ds", var_name="unique_id", value_name="y")
+    # Update Y_df in place by re-indexing
+    Y_df.set_index(["unique_id", "ds"], inplace=True)
+    melted.set_index(["unique_id", "ds"], inplace=True)
+    Y_df.update(melted)
+    Y_df.reset_index(inplace=True)
 
 
 def build_hierarchy_matrix(S_df: pd.DataFrame) -> tuple[np.ndarray, dict[str, list[str]]]:
@@ -410,6 +439,7 @@ def build_hierarchy_matrix(S_df: pd.DataFrame) -> tuple[np.ndarray, dict[str, li
     """
     sku_ids = S_df["unique_id"].tolist()
     n_bottom = len(sku_ids)
+    sku_id_to_idx = {uid: idx for idx, uid in enumerate(sku_ids)}
 
     # Bottom level: identity
     S_bottom = np.eye(n_bottom)
@@ -418,7 +448,7 @@ def build_hierarchy_matrix(S_df: pd.DataFrame) -> tuple[np.ndarray, dict[str, li
     cat_keys = []
     S_cat_rows = []
     for _, grp in S_df.groupby(["warehouse", "category", "subcategory"]):
-        indices = [sku_ids.index(uid) for uid in grp["unique_id"]]
+        indices = [sku_id_to_idx[uid] for uid in grp["unique_id"]]
         row = np.zeros(n_bottom)
         row[indices] = 1.0
         S_cat_rows.append(row)
@@ -429,7 +459,7 @@ def build_hierarchy_matrix(S_df: pd.DataFrame) -> tuple[np.ndarray, dict[str, li
     warehouse_keys = []
     S_wh_rows = []
     for wh, grp in S_df.groupby("warehouse"):
-        indices = [sku_ids.index(uid) for uid in grp["unique_id"]]
+        indices = [sku_id_to_idx[uid] for uid in grp["unique_id"]]
         row = np.zeros(n_bottom)
         row[indices] = 1.0
         S_wh_rows.append(row)
@@ -473,7 +503,7 @@ def get_data_statistics(Y_df: pd.DataFrame, S_df: pd.DataFrame) -> dict[str, Any
         "n_skus": n_skus,
         "n_days": n_days,
         "n_intermittent_skus": int(n_intermittent),
-        "intermittent_pct": round(n_intermittent / n_skus * 100, 1),
+        "intermittent_pct": round(n_intermittent / max(n_skus, 1) * 100, 1),
         "mean_demand": round(float(Y_df["y"].mean()), 2),
         "median_demand": round(float(Y_df["y"].median()), 2),
         "zero_demand_pct": round(float((Y_df["y"] == 0).mean() * 100), 1),

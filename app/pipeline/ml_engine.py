@@ -18,7 +18,7 @@ from matplotlib.gridspec import GridSpec
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.pipeline import Pipeline as SKPipeline
 
-warnings.filterwarnings("ignore", category=ConvergenceWarning)
+    # ConvergenceWarning is suppressed locally around sklearn calls, not globally
 
 # Supervised classifiers
 # Unsupervised
@@ -80,7 +80,11 @@ REGRESSION_FEATURES = CLASSIFICATION_FEATURES + [
 ]
 
 # All feature columns (for clustering/dimensionality reduction)
-FEATURE_COLS = REGRESSION_FEATURES + ["Inventory_Value"]
+# NOTE: Inventory_Value is the regression target — excluded to prevent leakage.
+# Current_Stock and Unit_Cost in REGRESSION_FEATURES create partial leakage
+# with Inventory_Value (= Current_Stock * Unit_Cost), but are kept because
+# they carry independent signal for clustering and classification tasks.
+FEATURE_COLS = REGRESSION_FEATURES
 
 
 class MLAnalyzer:
@@ -171,9 +175,15 @@ class MLAnalyzer:
         clean, X, y_class = self._prepare_classification_arrays(df)
 
         # Split BEFORE scaling to prevent data leakage
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y_class, test_size=0.2, random_state=42, stratify=y_class
-        )
+        class_counts = pd.Series(y_class).value_counts()
+        if class_counts.min() < 5:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y_class, test_size=0.2, random_state=42
+            )
+        else:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y_class, test_size=0.2, random_state=42, stratify=y_class
+            )
 
         # Fit scaler only on training data
         scaler = StandardScaler()
@@ -198,12 +208,15 @@ class MLAnalyzer:
         clf_results = {}
         trained_models = {}
         for name, clf in classifiers.items():
-            # Use sklearn Pipeline for CV to prevent scaler leakage
-            pipe = SKPipeline([("scaler", StandardScaler()), ("clf", clf)])
-            cv_scores = cross_val_score(pipe, X, y_class, cv=5, scoring="accuracy")
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                # Use sklearn Pipeline for CV to prevent scaler leakage
+                # CV only on training data to avoid test-set contamination
+                pipe = SKPipeline([("scaler", StandardScaler()), ("clf", clf)])
+                cv_scores = cross_val_score(pipe, X_train, y_train, cv=5, scoring="accuracy")
 
-            # Train on scaled train set for test accuracy
-            clf.fit(X_train_scaled, y_train)
+                # Train on scaled train set for test accuracy
+                clf.fit(X_train_scaled, y_train)
             y_pred = clf.predict(X_test_scaled)
             acc = accuracy_score(y_test, y_pred)
 
@@ -332,9 +345,15 @@ class MLAnalyzer:
 
         # Re-train fresh models if classification wasn't run yet
         if not hasattr(self, "_trained_models"):
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y_class, test_size=0.2, random_state=42, stratify=y_class
-            )
+            class_counts = pd.Series(y_class).value_counts()
+            if class_counts.min() < 5:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y_class, test_size=0.2, random_state=42
+                )
+            else:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y_class, test_size=0.2, random_state=42, stratify=y_class
+                )
             scaler = StandardScaler()
             X_train_scaled = scaler.fit_transform(X_train)
             models = {
@@ -653,8 +672,12 @@ class MLAnalyzer:
         profiles = pd.DataFrame(X_scaled, columns=FEATURE_COLS)
         profiles["Cluster"] = km_labels
         profile_mean = profiles.groupby("Cluster").mean()
+        # Labels must match FEATURE_COLS order:
+        # Unit_Cost, Current_Stock, Daily_Demand_Est, Safety_Stock_Target,
+        # Lead_Time_Days, Demand_Intensity, Category_Enc, Vendor_Enc,
+        # Reorder_Point, DSI, Stock_Coverage_Ratio
         short_labels = ["Cost", "Stock", "Demand", "Safety", "LeadT",
-                        "ReOrdP", "InvVal", "DSI", "CovR", "DemInt", "Cat", "Vend"]
+                        "DemInt", "Cat", "Vend", "ReOrd", "DSI", "CovR"]
         x_pos = np.arange(len(short_labels))
         width = 0.8 / best_k
         cluster_colors = sns.color_palette("Set2", best_k)
@@ -796,8 +819,8 @@ class MLAnalyzer:
         ax6 = fig.add_subplot(gs[1, 2])
         ax6.set_facecolor(CHART_BG_COLOR)
         loadings = pca_2d.components_.T  # shape (n_features, 2)
-        feat_short = ["Cost", "Stock", "Demand", "Safety", "Lead",
-                      "ReOrd", "InvVal", "DSI", "CovR", "DemInt", "Cat", "Vend"]
+        feat_short = ["Cost", "Stock", "Demand", "Safety", "LeadT",
+                      "DemInt", "Cat", "Vend", "ReOrd", "DSI", "CovR"]
         for i, (lx, ly) in enumerate(loadings):
             ax6.arrow(0, 0, lx * 3, ly * 3, head_width=0.08, head_length=0.05,
                       fc="#E74C3C", ec="#E74C3C", alpha=0.75)
@@ -897,8 +920,8 @@ class MLAnalyzer:
         # (3) Feature comparison anomaly vs normal (test set)
         ax3 = fig.add_subplot(gs[0, 2])
         ax3.set_facecolor(CHART_BG_COLOR)
-        feat_short = ["Cost", "Stock", "Demand", "Safety", "Lead",
-                      "ReOrd", "InvVal", "DSI", "CovR", "DemInt", "Cat", "Vend"]
+        feat_short = ["Cost", "Stock", "Demand", "Safety", "LeadT",
+                      "DemInt", "Cat", "Vend", "ReOrd", "DSI", "CovR"]
         X_test_orig = X[idx_test]
         df_feat = pd.DataFrame(X_test_orig, columns=FEATURE_COLS)
         df_feat["Anomaly"] = iso_anomaly
@@ -923,7 +946,9 @@ class MLAnalyzer:
         # --- Autoencoder (train on train set, evaluate on test set) ---
         ae = MLPRegressor(hidden_layer_sizes=(32, 8, 32), max_iter=200,
                           random_state=42, early_stopping=True, activation="relu")
-        ae.fit(X_train, X_train)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=ConvergenceWarning)
+            ae.fit(X_train, X_train)
         X_recon = ae.predict(X_test)
         recon_error = np.mean((X_test - X_recon) ** 2, axis=1)
         threshold_ae = float(np.percentile(recon_error, 95))
@@ -1020,7 +1045,7 @@ class MLAnalyzer:
         logger.info("chart_21: genetic algorithm")
         clean, _, _, _ = self._prepare_arrays(df)
 
-        np.random.seed(42)
+        rng = np.random.RandomState(42)
         categories = sorted(clean["Category"].unique())
         n_cats = len(categories)
 
@@ -1054,7 +1079,7 @@ class MLAnalyzer:
         CROSS_RATE = GA_CROSSOVER_RATE
         LOW, HIGH = 0.5, 3.0
 
-        population = np.random.uniform(LOW, HIGH, (POP_SIZE, n_cats))
+        population = rng.uniform(LOW, HIGH, (POP_SIZE, n_cats))
         best_fitness_hist: list = []
         avg_fitness_hist: list = []
         best_chrom_hist: list = []
@@ -1069,14 +1094,14 @@ class MLAnalyzer:
             # Elitism + tournament selection
             new_pop = [population[best_idx].copy()]
             for _ in range(POP_SIZE - 1):
-                i, j = np.random.randint(0, POP_SIZE, 2)
+                i, j = rng.randint(0, POP_SIZE, 2)
                 winner = population[i] if scores[i] < scores[j] else population[j]
                 new_pop.append(winner.copy())
 
             # Single-point crossover
             for i in range(1, POP_SIZE - 1, 2):
-                if np.random.random() < CROSS_RATE:
-                    pt = np.random.randint(1, n_cats)
+                if rng.random() < CROSS_RATE:
+                    pt = rng.randint(1, n_cats)
                     new_pop[i][pt:], new_pop[i + 1][pt:] = (
                         new_pop[i + 1][pt:].copy(),
                         new_pop[i][pt:].copy(),
@@ -1085,9 +1110,9 @@ class MLAnalyzer:
             # Gaussian mutation
             for i in range(1, POP_SIZE):
                 for j in range(n_cats):
-                    if np.random.random() < MUT_RATE:
+                    if rng.random() < MUT_RATE:
                         new_pop[i][j] = float(
-                            np.clip(new_pop[i][j] + np.random.normal(0, 0.2), LOW, HIGH)
+                            np.clip(new_pop[i][j] + rng.normal(0, 0.2), LOW, HIGH)
                         )
 
             population = np.array(new_pop)
@@ -1164,8 +1189,9 @@ class MLAnalyzer:
         ax3.text(1, optimal_cost / 1e6 * 1.02, f"${optimal_cost/1e6:.1f}M",
                  ha="center", fontsize=11, fontweight="bold", color=CHART_TEXT_COLOR)
         ax3.set_ylabel("Total Cost ($M)", color=CHART_TEXT_COLOR)
+        pct = (savings / current_cost * 100) if current_cost > 0 else 0.0
         ax3.set_title(
-            f"Cost Savings: ${savings/1e6:.2f}M ({savings/current_cost*100:.1f}%)",
+            f"Cost Savings: ${savings/1e6:.2f}M ({pct:.1f}%)",
             fontsize=12, fontweight="bold", color="#27AE60",
         )
 

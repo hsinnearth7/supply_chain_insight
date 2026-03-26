@@ -24,7 +24,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.logging import get_logger
+from app.log_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -68,6 +68,7 @@ DEMAND_FEATURES = FeatureGroup(
         Feature("month", "int64", "Month (1-12)"),
         Feature("is_holiday", "int64", "Holiday flag"),
         Feature("promo_flag", "int64", "Promotion flag"),
+        Feature("day_of_year", "int64", "Day of year (1-366)"),
     ],
     ttl=timedelta(days=1),
     description="Lag-based demand features for forecasting models",
@@ -211,27 +212,24 @@ class FeatureStore:
 
     def _compute_demand_features(self, Y_df: pd.DataFrame) -> pd.DataFrame:
         """Compute lag and rolling features from demand data."""
-        frames = []
+        Y_sorted = Y_df.sort_values(["unique_id", "ds"]).copy()
 
-        for uid, grp in Y_df.groupby("unique_id"):
-            grp = grp.sort_values("ds").copy()
+        # Lag features (vectorized groupby)
+        for lag in [1, 7, 14, 28]:
+            Y_sorted[f"lag_{lag}"] = Y_sorted.groupby("unique_id")["y"].shift(lag)
 
-            # Lag features
-            for lag in [1, 7, 14, 28]:
-                grp[f"lag_{lag}"] = grp["y"].shift(lag)
+        # Rolling features (shifted by 1 to prevent leakage)
+        shifted = Y_sorted.groupby("unique_id")["y"].shift(1)
+        Y_sorted["rolling_mean_7"] = shifted.groupby(Y_sorted["unique_id"]).rolling(7, min_periods=1).mean().droplevel(0)
+        Y_sorted["rolling_std_7"] = shifted.groupby(Y_sorted["unique_id"]).rolling(7, min_periods=1).std().droplevel(0).fillna(0)
+        Y_sorted["rolling_mean_28"] = shifted.groupby(Y_sorted["unique_id"]).rolling(28, min_periods=1).mean().droplevel(0)
 
-            # Rolling features (shifted by 1 to prevent leakage)
-            grp["rolling_mean_7"] = grp["y"].shift(1).rolling(7, min_periods=1).mean()
-            grp["rolling_std_7"] = grp["y"].shift(1).rolling(7, min_periods=1).std().fillna(0)
-            grp["rolling_mean_28"] = grp["y"].shift(1).rolling(28, min_periods=1).mean()
+        # Calendar features
+        Y_sorted["day_of_week"] = Y_sorted["ds"].dt.dayofweek
+        Y_sorted["month"] = Y_sorted["ds"].dt.month
+        Y_sorted["day_of_year"] = Y_sorted["ds"].dt.dayofyear
 
-            # Calendar features
-            grp["day_of_week"] = grp["ds"].dt.dayofweek
-            grp["month"] = grp["ds"].dt.month
-
-            frames.append(grp)
-
-        return pd.concat(frames, ignore_index=True)
+        return Y_sorted.reset_index(drop=True)
 
     @property
     def last_update(self) -> pd.Timestamp | None:

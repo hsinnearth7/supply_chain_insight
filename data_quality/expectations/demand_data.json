@@ -85,12 +85,12 @@
       }
     },
     {
-      "expectation_type": "expect_column_values_to_be_unique",
+      "expectation_type": "expect_column_values_to_not_be_null",
       "kwargs": {
         "column": "product_id"
       },
       "meta": {
-        "notes": "Within a single date, product_id should be unique. This checks global uniqueness of the compound key."
+        "notes": "product_id must not be null. Note: uniqueness should be checked per-date (compound key date+product_id), not globally."
       }
     },
     {

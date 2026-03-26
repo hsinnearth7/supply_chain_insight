@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats as scipy_stats
 
-from app.logging import get_logger
+from app.log_config import get_logger
 from app.settings import get_monitoring_config
 
 logger = get_logger(__name__)
@@ -173,7 +173,11 @@ class DriftMonitor:
         return result
 
     def record_mape(self, timestamp: pd.Timestamp, mape_value: float) -> None:
-        """Record daily MAPE for concept drift tracking."""
+        """Record daily MAPE for concept drift tracking.
+
+        mape_threshold is a fraction (e.g. 0.20 = 20%).
+        record_mape() expects MAPE in percentage form (e.g. 15.0 means 15%).
+        """
         self._mape_history.append((timestamp, mape_value))
 
     def check_concept_drift(self) -> DriftResult:
@@ -219,9 +223,14 @@ class DriftMonitor:
     @staticmethod
     def _compute_psi(reference: np.ndarray, current: np.ndarray, n_bins: int = 10) -> float:
         """Compute Population Stability Index (PSI)."""
-        # Bin boundaries from reference
-        min_val = min(reference.min(), current.min())
-        max_val = max(reference.max(), current.max())
+        if len(reference) == 0 or len(current) == 0:
+            return 0.0
+        if reference.min() == reference.max():
+            return 0.0  # Cannot build bins from constant reference
+
+        # Bin boundaries from reference only (current data must not influence bins)
+        min_val = float(reference.min())
+        max_val = float(reference.max())
         bins = np.linspace(min_val, max_val, n_bins + 1)
 
         ref_counts = np.histogram(reference, bins=bins)[0]
